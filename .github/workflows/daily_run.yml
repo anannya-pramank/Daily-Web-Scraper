@@ -1,0 +1,43 @@
+name: Daily Web Scraper
+
+on:
+  schedule:
+    # Runs at exactly 08:00 AM UTC (1:30 PM IST) every single day
+    - cron: '0 8 * * *'
+  workflow_dispatch: # This adds a manual "Play" button so you can test it anytime!
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Dependencies
+      run: |
+        pip install requests beautifulsoup4 pandas openpyxl
+
+    - name: Install Rclone (OneDrive Connector)
+      run: |
+        sudo -v && curl https://rclone.org/install.sh | sudo bash
+        mkdir -p ~/.config/rclone
+        echo "[onedrive]" > ~/.config/rclone/rclone.conf
+        echo "type = onedrive" >> ~/.config/rclone/rclone.conf
+        echo "token = '${{ secrets.ONEDRIVE_TOKEN }}'" >> ~/.config/rclone/rclone.conf
+
+    - name: Mount OneDrive
+      run: |
+        mkdir onedrive
+        rclone mount onedrive: onedrive --daemon
+        sleep 5 # Wait for connection
+
+    - name: Run Scraper Script
+      run: python scraper.py
+
+    - name: Unmount OneDrive
+      run: fusermount -u onedrive
