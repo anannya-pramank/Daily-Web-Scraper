@@ -2,9 +2,9 @@ name: Daily Web Scraper
 
 on:
   schedule:
-    # Runs at exactly 08:00 AM UTC (1:30 PM IST) every single day
-    - cron: '0 8 * * *'
-  workflow_dispatch: # This adds a manual "Play" button so you can test it anytime!
+    # Runs at exactly 09:00 AM IST (03:30 AM UTC) every single day
+    - cron: '30 3 * * *'
+  workflow_dispatch: # Allows you to also trigger it manually with a button click
 
 jobs:
   scrape:
