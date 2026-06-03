@@ -51,7 +51,6 @@ REALTIME_KEYWORDS = [
     "CDP Water", "Water Security", "Groundwater", "Water Recycling", "Blue Carbon", "Ocean Carbon"
 ]
 
-# Target keywords specifically for SEBI-related tracking
 SEBI_KEYWORDS = [
     "BRSR", "Listing Obligations and Disclosure Requirements", "LODR", "Assurance", "Assessment", "BRSR Core"
 ]
@@ -127,8 +126,8 @@ else:
     df_new = df_today.copy()
     df_history = pd.DataFrame(columns=['Organisation', 'Keyword Matched'])
 
-# FORCE A TEST ENTRY FOR POWER AUTOMATE VALIDATION
-df_new = pd.DataFrame([{ 'Organisation': 'TEST NODE', 'URL': '<a href="#">Test</a>', 'Keyword Matched': 'TESTING', 'Extracted Legal / Context Details': 'If you see this, your pipeline channel works perfectly!' }])
+# --- TEMPORARY LIVE TEST OVERRIDE ---
+df_new = df_today.copy()
 
 # ==========================================
 # 4. STRUCTURAL HTML COMPILATION & DELIVERY
@@ -157,9 +156,13 @@ if not df_new.empty:
     """
 else:
     email_body = """
-    <div style="font-family: Arial, sans-serif; max-width: 600px;">
-        <h2 style="color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px;">Daily Compliance Scraper Update</h2>
-        <p style="font-size: 14px; color: #4a5568;">The daily compliance run completed successfully. <b>No brand-new tracking terms</b> were isolated across your monitored matrix today.</p>
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.5;">
+        <h2 style="color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; margin-bottom: 15px;">Daily Compliance Scraper Update</h2>
+        <p style="font-size: 14px; color: #2d3748;">The daily compliance run completed successfully.</p>
+        <p style="font-size: 14px; padding: 12px; background-color: #f8fafc; border-left: 4px solid #cbd5e1; color: #475569;">
+            <b>Status:</b> No brand-new tracking terms were isolated across your monitored matrix during this scan run. Everything is up to date!
+        </p>
+        <p style="font-size: 11px; color: #a0aec0; border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 20px;">*Automated system generation alert.</p>
     </div>
     """
 
