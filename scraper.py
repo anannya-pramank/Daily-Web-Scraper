@@ -143,6 +143,8 @@ if os.path.exists(HISTORY_PATH) and not df_today.empty:
     df_new = merged[merged['_merge'] == 'left_only'].drop(columns=['_merge'])
 else:
     df_new = df_today.copy()
+    # FORCE A TEST ENTRY FOR POWER AUTOMATE VALIDATION
+df_new = pd.DataFrame([{ 'Organisation': 'TEST NODE', 'URL': '<a href="#">Test</a>', 'Keyword Matched': 'TESTING', 'Extracted Legal / Context Details': 'If you see this, your pipeline channel works perfectly!' }])
     df_history = pd.DataFrame(columns=['Organisation', 'Keyword Matched'])
 
 # ==========================================
