@@ -141,4 +141,4 @@ if not df_new.empty:
     ).replace(
         '<th>', '<th style="background-color: #f4f6f9; color: #333333; padding: 10px; border-bottom: 2px solid #cfd4dc; text-align: left;">'
     ).replace(
-        '<td>', '<td style="padding: 10px;
+        '<td>','<td style="padding: 10px;
