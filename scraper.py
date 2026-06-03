@@ -102,13 +102,13 @@ for site in SOURCES:
                 elements = soup.find_all(string=re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE))
                 if elements:
                     parent_text = elements[0].parent.get_text(separator=" ", strip=True)
-                    if len(parent_text) > 550:
-                        parent_text = parent_text[:550] + " ... [Read full context at source]"
+                    if len(parent_text) > 250:
+                        parent_text = parent_text[:250] + "..."
                     results.append({
                         'Organisation': org,
                         'URL': f'<a href="{url}">Source Link</a>',
                         'Keyword Matched': kw.title(),
-                        'Extracted Legal / Context Details': parent_text
+                        'Extracted Details': parent_text
                     })
     except Exception:
         continue
@@ -126,9 +126,6 @@ else:
     df_new = df_today.copy()
     df_history = pd.DataFrame(columns=['Organisation', 'Keyword Matched'])
 
-# --- TEMPORARY LIVE TEST OVERRIDE ---
-df_new = df_today.copy()
-
 # ==========================================
 # 4. STRUCTURAL HTML COMPILATION & DELIVERY
 # ==========================================
@@ -136,46 +133,12 @@ if not df_new.empty:
     new_history = df_new[['Organisation', 'Keyword Matched']]
     pd.concat([df_history, new_history]).drop_duplicates().to_csv(HISTORY_PATH, index=False)
     
-    html_table = df_new.to_html(index=False, border=0, justify='left', escape=False).replace(
+    # Keep the email size clean by focusing on the top 25 recent matches
+    df_limited = df_new.head(25)
+    
+    html_table = df_limited.to_html(index=False, border=0, justify='left', escape=False).replace(
         'class="dataframe"', 'style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 13px;"'
     ).replace(
-        '<th>', '<th style="background-color: #f4f6f9; color: #333333; padding: 12px 10px; border-bottom: 2px solid #cfd4dc; text-align: left;">'
+        '<th>', '<th style="background-color: #f4f6f9; color: #333333; padding: 10px; border-bottom: 2px solid #cfd4dc; text-align: left;">'
     ).replace(
-        '<td>', '<td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; color: #2d3748; vertical-align: top;">'
-    )
-    
-    email_body = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 950px; margin: 0 auto; line-height: 1.5;">
-        <h2 style="color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; margin-bottom: 15px;">Daily Compliance Scraper Update</h2>
-        <p style="font-size: 14px; color: #4a5568;">The system has executed its daily validation run. The following <b>new entries</b> were successfully identified along with their unredacted contextual details:</p>
-        <br>
-        {html_table}
-        <br><br>
-        <p style="font-size: 11px; color: #a0aec0; border-top: 1px solid #e2e8f0; padding-top: 10px;">*Automated system generation alert. Excerpts are contextual and mapped dynamically. Historical updates are automatically filtered out to eliminate redundant reporting.</p>
-    </div>
-    """
-else:
-    email_body = """
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.5;">
-        <h2 style="color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; margin-bottom: 15px;">Daily Compliance Scraper Update</h2>
-        <p style="font-size: 14px; color: #2d3748;">The daily compliance run completed successfully.</p>
-        <p style="font-size: 14px; padding: 12px; background-color: #f8fafc; border-left: 4px solid #cbd5e1; color: #475569;">
-            <b>Status:</b> No brand-new tracking terms were isolated across your monitored matrix during this scan run. Everything is up to date!
-        </p>
-        <p style="font-size: 11px; color: #a0aec0; border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 20px;">*Automated system generation alert.</p>
-    </div>
-    """
-
-print("Transmitting email payload directly to Power Automate...")
-try:
-    response = requests.post(
-        POWER_AUTOMATE_URL, 
-        data=email_body.encode('utf-8'), 
-        headers={'Content-Type': 'text/html; charset=utf-8'}
-    )
-    if response.status_code in [200, 202]:
-        print("✅ Email payload successfully delivered to Power Automate workflow!")
-    else:
-        print(f"⚠️ Power Automate responded with error code: {response.status_code}")
-except Exception as e:
-    print(f"❌ Failed to reach Power Automate endpoint: {e}")
+        '<td>', '<td style="padding: 10px;
