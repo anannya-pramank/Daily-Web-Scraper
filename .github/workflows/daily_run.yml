@@ -1,43 +1,34 @@
-name: Daily Web Scraper
+name: Independent Automated Scraper Run
 
 on:
   schedule:
-    # Runs at exactly 09:00 AM IST (03:30 AM UTC) every single day
+    # Runs precisely at 09:00 AM IST (03:30 AM UTC) daily
     - cron: '30 3 * * *'
-  workflow_dispatch: # Allows you to also trigger it manually with a button click
+  workflow_dispatch: # Retains manual manual execution button trigger
 
 jobs:
-  scrape:
+  execute-pipeline:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Code
+    - name: Access Repository Files
       uses: actions/checkout@v3
 
-    - name: Set up Python
+    - name: Initialize Environment Runtime
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
-    - name: Install Dependencies
+    - name: Provision Required Module Libraries
       run: |
         pip install requests beautifulsoup4 pandas openpyxl
 
-    - name: Install Rclone (OneDrive Connector)
-      run: |
-        sudo -v && curl https://rclone.org/install.sh | sudo bash
-        mkdir -p ~/.config/rclone
-        echo "[onedrive]" > ~/.config/rclone/rclone.conf
-        echo "type = onedrive" >> ~/.config/rclone/rclone.conf
-        echo "token = '${{ secrets.ONEDRIVE_TOKEN }}'" >> ~/.config/rclone/rclone.conf
-
-    - name: Mount OneDrive
-      run: |
-        mkdir onedrive
-        rclone mount onedrive: onedrive --daemon
-        sleep 5 # Wait for connection
-
-    - name: Run Scraper Script
+    - name: Run Web Scraper Engine
       run: python scraper.py
 
-    - name: Unmount OneDrive
-      run: fusermount -u onedrive
+    - name: Commit and Save Internal History Memory State
+      run: |
+        git config --local user.email "actions@github.com"
+        git config --local user.name "GitHub Actions Automated Pipeline"
+        git add Historical_Matches.csv Email_Summary.html || true
+        git commit -m "Automated update: Track memory and refresh email template [skip ci]" -a || true
+        git push || true
