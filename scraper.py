@@ -8,7 +8,7 @@ import re
 # 1. HARDCODED CONFIGURATION & KEYWORDS MATRICES
 # ==========================================
 
-POWER_AUTOMATE_URL = "https://defaultfd7143fa1107460d98b18ef251b16d.50.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/83c582d1339848bf82bb44367f463879/triggers/manual/paths/invoke?api-version=1"
+POWER_AUTOMATE_URL = "https://defaultfd7143fa1107460d98b18ef251b16d.50.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/83c582d1339848bf82bb44367f463879/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=G0QNUbenz6wjlJLNkAW0j0b34BMc6aB7i58Lfmy-8Jg"
 
 TENDER_KEYWORDS = [
     "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint", "Carbon", "Carbon Neutral", 
