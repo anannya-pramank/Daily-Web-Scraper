@@ -4,113 +4,183 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 
-# 1. DEFINE PATHS ON ONEDRIVE
-CONFIG_PATH = "onedrive/WebScraper/Web-Scraper-Config.xlsx"
-HISTORY_PATH = "onedrive/WebScraper/Historical_Matches.csv"
-SUMMARY_PATH = "onedrive/WebScraper/Email_Summary.html"
+# ==========================================
+# 1. HARDCODED CONFIGURATION & KEYWORDS MATRICES
+# ==========================================
 
-# 2. READ EXCEL CONFIGURATION
-print("Reading configuration from OneDrive...")
-try:
-    sources_df = pd.read_excel(CONFIG_PATH, sheet_name='Sources')
-    keywords_df = pd.read_excel(CONFIG_PATH, sheet_name='Keywords')
-except Exception as e:
-    print(f"Error reading file: {e}")
-    exit(1)
+# Keywords for GeM / Tender trackers
+TENDER_KEYWORDS = [
+    "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint", "Carbon", "Carbon Neutral", 
+    "Net Zero", "Carbon Sequestration", "Scope 1", "Scope 2", "Scope 3", "Ghg", "Green House Gas", 
+    "Green House Gases", "Esg", "ESG Disclosure", "Climate Change", "Green Finance", "Sustainable Finance", 
+    "Brsr", "Assurance", "Assessment", "Sustainab", "Sustainability", "Ccts", "Carbon Market"
+]
 
-url_col = [c for c in sources_df.columns if 'URL' in str(c).upper()][0]
-org_col = [c for c in sources_df.columns if 'ORG' in str(c).upper()][0]
-keyword_col = keywords_df.columns[0]
+# Comprehensive keywords for Real-Time global and domestic climate/policy sites
+REALTIME_KEYWORDS = [
+    "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint", "Carbon Neutral", "Carbon Sequestration", 
+    "Carbon Market", "Carbon Border", "Carbon Tax", "Carbon Price", "Net Zero", "Climate Change", "Climate Risk", 
+    "Climate Action", "Climate Finance", "Climate Policy", "Climate Tech", "Carbon Removal", "Decarbonisation", 
+    "Emissions Reduction", "Paris Agreement", "COP", "Global Warming", "Clean Energy Transition", "ESG", 
+    "ESG Disclosure", "ESG Reporting", "ESG Investing", "ESG Rating", "ESG Framework", "ESG Score", "BRSR", 
+    "BRSR Core", "Assurance", "Assessment", "Sustainab", "Sustainability", "Sustainable Finance", "Green Finance", 
+    "TCFD", "GRI", "CSRD", "ISSB", "SASB", "Integrated Reporting", "Double Materiality", "LODR", "Scope 1", 
+    "Scope 2", "Scope 3", "GHG", "Greenhouse Gas", "Greenhouse Gases", "Emissions", "Net Emissions", 
+    "Carbon Emissions", "Methane", "Renewable Energy", "Solar", "Wind Energy", "Green Hydrogen", "Energy Transition", 
+    "Clean Tech", "Battery Storage", "EV", "Electric Vehicle", "Ammonia", "Green Bond", "Sustainability Bond", 
+    "Transition Finance", "Blended Finance", "Impact Investing", "ESG Fund", "Taxonomy", "Greenwashing", 
+    "Carbon Credit Market", "Voluntary Carbon Market", "Compliance Carbon", "India Net Zero", "India Renewable", 
+    "India ESG", "India Sustainability", "ESG Conference", "Carbon Summit", "Sustainability Summit", "ESG Seminar", 
+    "Climate Conference", "Carbon Forum", "Green Finance Summit", "ESG India", "Sustainability Event", "CBAM", 
+    "Carbon Border Adjustment", "EU Carbon Tax", "CBAM Reporting", "CBAM Certificate", "EU ETS", "Carbon Leakage", 
+    "CBAM Implementation", "EU Green Deal", "CBAM Transition", "Voluntary Carbon Market", "Compliance Carbon Market", 
+    "Article 6", "Carbon Credits", "Carbon Standard", "Verra", "Gold Standard", "Carbon Registry", "IFRS S1", 
+    "IFRS S2", "Carbon Offsetting", "Climate Fintech", "Green Fintech", "CO2 Investor", "Nature Finance", 
+    "ESG Investor", "Impact Fund", "Climate Fund", "Green Investment", "Sustainable Investment India", "ESG Portfolio", 
+    "Climate VC", "Green PE", "Plastic Pollution", "Extended Producer Responsibility", "EPR", "Plastic Waste", 
+    "Global Plastics Treaty", "Single Use Plastic", "Circular Economy", "Plastic Credit", "BRICS Carbon", 
+    "Global Carbon Market", "International Carbon Trading", "Global Sustainability", "G20 Climate", "Multilateral Carbon", 
+    "Global Net Zero", "ESG KPI", "Materiality Matrix", "ESG Maturity", "ESG Benchmark", "ESG Tech", "ESG SaaS", 
+    "Joint Crediting Mechanism", "JCM", "Japan Carbon", "Bilateral Carbon", "Article 6.2", "Bioenergy", "Biomass", 
+    "Biomass Energy", "Biofuel", "Sustainable Biomass", "Biomass Power", "Biomass Carbon", "BECCS", "Biomass Co-firing", 
+    "Waste to Energy", "Agricultural Residue", "Biomass Gasification", "Biomass Pellets", "Forest Biomass", 
+    "Biomass Sustainability Criteria", "RED III", "Biomass Carbon Neutrality", "Biochar", "Bio-CCS", 
+    "Nature Based Solutions", "Biodiversity", "Nature Loss", "TNFD", "SBTN", "Ecosystem Services", 
+    "Biodiversity Credits", "Deforestation", "EUDR", "Biodiversity Net Gain", "Kunming Montreal", "Wildlife", 
+    "Wetlands", "Forest Carbon", "Water Stewardship", "Water Risk", "Water Stress", "Water Footprint", "Water Credits", 
+    "Watershed", "Water Disclosure", "CDP Water", "Water Security", "Groundwater", "Water Recycling", "Blue Carbon", 
+    "Ocean Carbon"
+]
 
-sources_df[org_col] = sources_df[org_col].astype(str).str.strip()
-sources_df[url_col] = sources_df[url_col].astype(str).str.strip()
-keywords = keywords_df[keyword_col].dropna().astype(str).str.strip().tolist()
+# Target keywords specifically for SEBI-related tracking
+SEBI_KEYWORDS = [
+    "BRSR", "Listing Obligations and Disclosure Requirements", "LODR", "Assurance", "Assessment", "BRSR Core"
+]
 
-UNIQUE_KEYWORDS = list(set([k.lower() for k in keywords]))
+# Fully mapped infrastructure containing source entities, operational links, and targeted keyword blocks
+SOURCES = [
+    # --- TENDERS CHANNELS ---
+    {"org": "GeM CPPP", "url": "https://gem.gov.in/cppp", "keywords": TENDER_KEYWORDS},
+    {"org": "GeM List of Bids", "url": "https://bidplus.gem.gov.in/all-bids", "keywords": TENDER_KEYWORDS},
+    {"org": "GeM CPPP Active Tenders", "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata/byYzJWc1pXTjBBMTNoMWMyVnNaV04wQTEzaDFjSFZpYkdsemFHVmtYMlJoZEdVPUExM2gxUWxKVFVnPT0=", "keywords": TENDER_KEYWORDS},
+    {"org": "GeM CPPP Active Tenders - Central", "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata", "keywords": TENDER_KEYWORDS},
+    {"org": "GeM CPPP Active Tenders - State", "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/mmpdata", "keywords": TENDER_KEYWORDS},
+    
+    # --- REAL TIME UPDATES ---
+    {"org": "ESG Today", "url": "https://www.esgtoday.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "Trellis / GreenBiz", "url": "https://trellis.net/", "keywords": REALTIME_KEYWORDS},
+    {"org": "EsgNews.com", "url": "https://esgnews.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "Sustainability Magazine", "url": "https://sustainabilitymag.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "ESG Dive", "url": "https://www.esgdive.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "ESG Clarity", "url": "https://esgclarity.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "ESG Investing", "url": "https://www.esginvesting.co.uk/", "keywords": REALTIME_KEYWORDS},
+    {"org": "Financial Advisor Magazine", "url": "https://www.fa-mag.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "Environmental Finance", "url": "https://www.environmental-finance.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "GreenMoney", "url": "https://greenmoney.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "Mondaq", "url": "https://www.mondaq.com/", "keywords": REALTIME_KEYWORDS},
+    {"org": "Government of India (PIB)", "url": "https://www.pib.gov.in/allRel.aspx?reg=1&lang=1", "keywords": REALTIME_KEYWORDS},
+    
+    # --- SEBI REGULATORY TRACKS ---
+    {"org": "SEBI Master Circular", "url": "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&ssid=6&smid=0", "keywords": SEBI_KEYWORDS},
+    {"org": "SEBI Advisory/Guidance", "url": "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&ssid=96&smid=0", "keywords": SEBI_KEYWORDS},
+    {"org": "SEBI Circulars", "url": "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&ssid=7&smid=0", "keywords": SEBI_KEYWORDS},
+    {"org": "SEBI Gazette Notification", "url": "https://www.sebi.gov.in/sebiweb/home/HomeAction.do?doListing=yes&sid=1&ssid=82&smid=0", "keywords": SEBI_KEYWORDS}
+]
 
-# 3. RUN THE SCRAPER (NOW WITH CONTEXT EXTRACTION)
+HISTORY_PATH = "Historical_Matches.csv"
+SUMMARY_PATH = "Email_Summary.html"
+
+# ==========================================
+# 2. OPERATIONAL ENGINE & CONTEXT EXTRACTION
+# ==========================================
 results = []
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 
-print(f"Scanning {len(sources_df)} websites...")
-for idx, row in sources_df.iterrows():
-    org = row[org_col]
-    url = row[url_col]
+print(f"Commencing scan across {len(SOURCES)} hardcoded destination nodes...")
+
+for site in SOURCES:
+    org = site["org"]
+    url = site["url"]
+    site_keywords = list(set([k.lower() for k in site["keywords"]])) # Clean and deduplicate target words
     
     try:
         response = requests.get(url, headers=headers, timeout=15)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            for kw in UNIQUE_KEYWORDS:
-                # Find the exact HTML elements containing the keyword
-                elements = soup.find_all(string=re.compile(kw, re.IGNORECASE))
+            for kw in site_keywords:
+                # Target precise DOM strings hosting targeted keywords
+                elements = soup.find_all(string=re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE))
                 
                 if elements:
-                    # Grab the text from the parent paragraph/row
+                    # Capture contextual sentence structure wrapping the tracked term
                     parent_text = elements[0].parent.get_text(separator=" ", strip=True)
                     
-                    # Clean up the text and limit to ~600 characters so it fits nicely in the email
-                    if len(parent_text) > 600:
-                        parent_text = parent_text[:600] + " ... [Read more on site]"
-                        
+                    # Prevent data bloat while maintaining strict structural readability
+                    if len(parent_text) > 550:
+                        parent_text = parent_text[:550] + " ... [Read full context at source]"
+                    
                     results.append({
-                        'Organisation': org, 
-                        'URL': f'<a href="{url}">Link</a>', # Makes a clickable link
-                        'Keyword': kw.title(),
-                        'Extracted Context / Details': parent_text
+                        'Organisation': org,
+                        'URL': f'<a href="{url}">Source Link</a>',
+                        'Keyword Matched': kw.title(),
+                        'Extracted Legal / Context Details': parent_text
                     })
     except Exception:
-        print(f"Skipped site: {org}")
+        print(f"Skipping unresponsive link node: {org}")
+        continue
 
 df_today = pd.DataFrame(results)
 
-# 4. COMPARE WITH HISTORY 
+# ==========================================
+# 3. FILTRATION ENGINE & HISTORY MERGE
+# ==========================================
 if os.path.exists(HISTORY_PATH) and not df_today.empty:
     df_history = pd.read_csv(HISTORY_PATH)
-    # We compare based on Org, URL, and Keyword (ignoring the exact context string so minor site changes don't trigger duplicates)
-    merged = df_today.merge(df_history[['Organisation', 'Keyword']], on=['Organisation', 'Keyword'], how='left', indicator=True)
+    # Filter using 'Organisation' and 'Keyword Matched' to confirm brand new signals
+    merged = df_today.merge(df_history[['Organisation', 'Keyword Matched']], on=['Organisation', 'Keyword Matched'], how='left', indicator=True)
     df_new = merged[merged['_merge'] == 'left_only'].drop(columns=['_merge'])
 else:
     df_new = df_today.copy()
-    df_history = pd.DataFrame(columns=['Organisation', 'Keyword'])
+    df_history = pd.DataFrame(columns=['Organisation', 'Keyword Matched'])
 
-# 5. GENERATE EMAIL SUMMARY & UPDATE HISTORY
+# ==========================================
+# 4. STRUCTURAL HTML COMPILATION
+# ==========================================
 if not df_new.empty:
-    # Update history with new Org/Keyword combos
-    new_history = df_new[['Organisation', 'Keyword']]
+    # Append the new records to protect cross-day memory storage
+    new_history = df_new[['Organisation', 'Keyword Matched']]
     pd.concat([df_history, new_history]).drop_duplicates().to_csv(HISTORY_PATH, index=False)
     
-    # Create HTML Table with Custom Widths for readability
+    # Translate dataframe to custom formatted HTML tables
     html_table = df_new.to_html(index=False, border=0, justify='left', escape=False).replace(
-        'class="dataframe"', 'style="border-collapse: collapse; width: 100%; font-family: Arial; font-size: 13px;"'
+        'class="dataframe"', 'style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 13px;"'
     ).replace(
-        '<th>', '<th style="background-color: #f2f2f2; padding: 10px; border-bottom: 2px solid #ddd; text-align: left;">'
+        '<th>', '<th style="background-color: #f4f6f9; color: #333333; padding: 12px 10px; border-bottom: 2px solid #cfd4dc; text-align: left;">'
     ).replace(
-        '<td>', '<td style="padding: 10px; border-bottom: 1px solid #ddd; vertical-align: top;">'
+        '<td>', '<td style="padding: 12px 10px; border-bottom: 1px solid #e2e8f0; color: #2d3748; vertical-align: top;">'
     )
     
     email_body = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 900px;">
-        <h2 style="color: #2e74b5; border-bottom: 1px solid #2e74b5; padding-bottom: 5px;">Daily Scraper Update & Legal Summary</h2>
-        <p>The following <b>new</b> tracking terms were detected today. The relevant text excerpts have been extracted below for your review:</p>
+    <div style="font-family: Arial, sans-serif; max-width: 950px; margin: 0 auto; line-height: 1.5;">
+        <h2 style="color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; margin-bottom: 15px;">Daily Compliance Scraper Update</h2>
+        <p style="font-size: 14px; color: #4a5568;">The system has executed its daily validation run. The following <b>new entries</b> were successfully identified along with their unredacted contextual details:</p>
         <br>
         {html_table}
         <br><br>
-        <p style="font-size: 11px; color: gray;">*This is an automated alert. Excerpts are pulled directly from the source pages. Historical matches are filtered out.</p>
+        <p style="font-size: 11px; color: #a0aec0; border-top: 1px solid #e2e8f0; padding-top: 10px;">*Automated system generation alert. Excerpts are contextual and mapped dynamically. Historical updates are automatically filtered out to eliminate redundant reporting.</p>
     </div>
     """
     with open(SUMMARY_PATH, "w", encoding="utf-8") as f:
         f.write(email_body)
-    print(f"Found {len(df_new)} new updates.")
-
+    print(f"Run Finished: Identified {len(df_new)} unique updates. Output compiled.")
 else:
     email_body = """
-    <div style="font-family: Arial, sans-serif;">
-        <h2 style="color: #2e74b5;">Daily Scraper Update</h2>
-        <p>No new keywords or legal updates were detected today.</p>
+    <div style="font-family: Arial, sans-serif; max-width: 600px;">
+        <h2 style="color: #1e3a8a; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px;">Daily Compliance Scraper Update</h2>
+        <p style="font-size: 14px; color: #4a5568;">The daily compliance run completed successfully. <b>No brand-new tracking terms</b> were isolated across your monitored matrix today.</p>
     </div>
     """
     with open(SUMMARY_PATH, "w", encoding="utf-8") as f:
         f.write(email_body)
-    print("No new updates today.")
+    print("Run Finished: 0 new tracking matches isolated today.")
