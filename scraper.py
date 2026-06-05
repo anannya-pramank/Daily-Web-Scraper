@@ -27,11 +27,7 @@ HISTORY_PATH = "Historical_Matches.csv"
 RECENCY_DAYS = 60
 RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
 
-# FIX: Wider recency window for regulatory sources.
-# SEBI does not publish every day; a 60-day window can silently drop valid
-# circulars that fall just outside the cutoff (e.g. an Apr 7 item when
-# running on Jun 5 is only 59 days — one missed run pushes it out).
-# 90 days gives a comfortable buffer without flooding the digest.
+# Wider recency window for regulatory sources.
 REGULATORY_RECENCY_DAYS = 90
 REGULATORY_RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=REGULATORY_RECENCY_DAYS)
 
@@ -46,7 +42,6 @@ def parse_fuzzy_date(text: str):
     if not text:
         return None
     text = text.strip()
-    # RFC-2822 (RSS feeds: "Thu, 04 Jun 2026 00:00:00 +0000")
     try:
         return parsedate_to_datetime(text)
     except Exception:
@@ -88,32 +83,25 @@ TENDER_KEYWORDS = [
     "Net Zero", "Carbon Sequestration", "Scope 1", "Scope 2", "Scope 3", "GHG",
     "Green House Gas", "Green House Gases", "ESG", "ESG Disclosure", "Climate Change",
     "Green Finance", "Sustainable Finance", "BRSR", "Assurance", "Assessment",
-    # FIX: "Sustainab" replaced with explicit forms.
-    # The word-boundary regex (?<![a-zA-Z0-9])sustainab(?![a-zA-Z0-9]) can never
-    # match "sustainability" or "sustainable" because those words have characters
-    # after "sustainab". Using the full words fixes the silent miss.
     "Sustainability", "Sustainable",
     "Carbon Market",
-    # FIX: CCTS (Carbon Credit Trading Scheme) was in the tracking list but absent here.
     "CCTS",
+    "Carbon",  # FIX: Added standalone keyword from the Tracking_List.docx blueprint
 ]
 
 REALTIME_KEYWORDS = [
-    # ── Carbon & Emissions (specific first) ──────────────────────────────────
+    # ── Carbon & Emissions ──────────────────────────────────────────────────
     "Carbon Border Adjustment", "Voluntary Carbon Market", "Joint Crediting Mechanism",
     "Carbon Sequestration", "Carbon Offsetting", "Emissions Reduction", "Carbon Removal",
     "Carbon Footprint", "Carbon Credits", "Carbon Trading", "Carbon Neutral", "Carbon Offset",
     "Carbon Credit", "Carbon Market", "Carbon Border", "Carbon Leakage", "Carbon Emissions",
     "Carbon Price", "Carbon Tax", "Net Emissions", "Carbon Standard", "Carbon Registry",
-    # FIX: added global carbon market cluster (all were in tracking list, none in code)
     "Global Carbon Market", "International Carbon Trading", "BRICS Carbon",
-    "Multilateral Carbon", "Global Net Zero",
-    "Net Zero",
-    # ── Climate (specific first) ─────────────────────────────────────────────
+    "Multilateral Carbon", "Global Net Zero", "Net Zero",
+    # ── Climate ─────────────────────────────────────────────────────────────
     "Clean Energy Transition", "Global Plastics Treaty", "Decarbonisation",
     "Climate Finance", "Climate Policy", "Climate Action", "Climate Change",
     "Climate Risk", "Climate Tech", "Paris Agreement", "Global Warming",
-    # FIX: added Climate Conference and Climate Fintech — both in tracking list
     "Climate Conference", "Climate Fintech",
     # ── Reporting Standards & Frameworks ─────────────────────────────────────
     "Listing Obligations and Disclosure Requirements",
@@ -124,65 +112,40 @@ REALTIME_KEYWORDS = [
     "Green Finance Summit", "Biodiversity Credits", "ESG Disclosure",
     "ESG Reporting", "ESG Investing", "ESG Framework", "ESG Portfolio",
     "ESG Conference", "ESG Rating", "ESG Score", "ESG Fund",
-    # FIX: added ESG metadata/tech terms — all in tracking list, all missing from code
     "ESG KPI", "ESG Maturity", "ESG Benchmark", "ESG Tech", "ESG SaaS",
-    "Materiality Matrix",
-    "BRSR Core", "IFRS S1", "IFRS S2", "Article 6.2", "Article 6",
-    "CSRD", "ISSB", "LODR", "TCFD", "BRSR", "SASB", "TNFD", "SBTN",
-    "GRI", "GHG", "COP",
+    "Materiality Matrix", "BRSR Core", "IFRS S1", "IFRS S2", "Article 6.2", "Article 6",
+    "CSRD", "ISSB", "LODR", "TCFD", "BRSR", "SASB", "TNFD", "SBTN", "GRI", "GHG", "COP",
     # ── Finance & Investment ─────────────────────────────────────────────────
     "India Sustainability", "Transition Finance", "Blended Finance",
     "Impact Investing", "Green Investment", "India Net Zero", "India ESG",
-    # FIX: India Renewable and Sustainable Investment India — in tracking list, missing from code
     "India Renewable", "Sustainable Investment India",
     "Carbon Summit", "Green Bond", "Taxonomy", "Greenwashing",
     "Compliance Carbon", "Gold Standard", "Verra",
-    # FIX: event terms — Carbon Forum, ESG India, Sustainability Event, ESG Seminar all in
-    # tracking list but absent from code; these catch conference/event coverage
     "Carbon Forum", "ESG India", "Sustainability Event", "ESG Seminar",
-    # FIX: fintech/fund/VC/PE terms — entire cluster missing from code
     "Green Fintech", "Nature Finance", "Impact Fund", "Climate Fund",
     "Climate VC", "Green PE", "CO2 Investor",
     # ── Energy ───────────────────────────────────────────────────────────────
     "Waste to Energy", "Energy Transition", "Renewable Energy", "Green Hydrogen",
-    "Wind Energy", "Battery Storage", "Electric Vehicle", "Clean Tech",
-    # FIX: Ammonia (green ammonia context) and EV (short form) — in tracking list
-    "Ammonia", "EV",
+    "Wind Energy", "Battery Storage", "Electric Vehicle", "Clean Tech", "Ammonia", "EV",
     # ── Nature & Water ───────────────────────────────────────────────────────
     "Water Stewardship", "Water Security", "Water Footprint", "Water Stress",
     "Water Risk", "Blue Carbon", "Ocean Carbon", "Forest Carbon",
-    # FIX: entire water sub-cluster was missing — Groundwater, Water Recycling, Water Credits,
-    # Watershed, Water Disclosure, CDP Water — all in tracking list
     "Groundwater", "Water Recycling", "Water Credits", "Watershed",
-    "Water Disclosure", "CDP Water",
-    "Kunming Montreal", "Deforestation", "Nature Loss", "Biodiversity",
-    # FIX: Wildlife and Wetlands — in tracking list, missing from code
-    "Wildlife", "Wetlands",
-    "EUDR",
+    "Water Disclosure", "CDP Water", "Kunming Montreal", "Deforestation",
+    "Nature Loss", "Biodiversity", "Wildlife", "Wetlands", "EUDR",
     # ── Circular / Trade ─────────────────────────────────────────────────────
-    "Circular Economy", "Plastic Pollution", "Plastic Credit",
-    # FIX: Plastic Waste and Single Use Plastic — in tracking list, missing from code
-    "Plastic Waste", "Single Use Plastic",
-    "EU Green Deal", "EU Carbon Tax", "EU ETS", "CBAM",
-    # FIX: CBAM sub-terms — all four were in tracking list, none in code.
-    # These catch articles about compliance specifics and phase-in reporting.
+    "Circular Economy", "Plastic Pollution", "Plastic Credit", "Plastic Waste",
+    "Single Use Plastic", "EU Green Deal", "EU Carbon Tax", "EU ETS", "CBAM",
     "CBAM Reporting", "CBAM Certificate", "CBAM Implementation", "CBAM Transition",
-    # ── Biomass (specific first) ──────────────────────────────────────────────
-    "BECCS", "Biochar", "Bioenergy",
-    # FIX: full biomass cluster from tracking list — all were missing from code.
-    # These catch the growing bioenergy/BECCS/biomass-for-carbon-removal coverage.
-    "Biofuel", "Biomass Energy", "Biomass Power", "Biomass Carbon",
-    "Bio-CCS", "Biomass Co-firing", "Agricultural Residue",
+    # ── Biomass ──────────────────────────────────────────────────────────────
+    "BECCS", "Biochar", "Bioenergy", "Biofuel", "Biomass Energy", "Biomass Power",
+    "Biomass Carbon", "Bio-CCS", "Biomass Co-firing", "Agricultural Residue",
     "Biomass Gasification", "Biomass Pellets", "Forest Biomass",
-    "Biomass Sustainability Criteria", "RED III", "Biomass Carbon Neutrality",
-    "Biomass",
+    "Biomass Sustainability Criteria", "RED III", "Biomass Carbon Neutrality", "Biomass",
     # ── Other specific ───────────────────────────────────────────────────────
-    "Methane", "Scope 1", "Scope 2", "Scope 3",
-    "Assurance", "Assessment",
-    "JCM", "EPR",
-    # FIX: Japan/bilateral carbon and global sustainability terms — in tracking list, missing
+    "Methane", "Scope 1", "Scope 2", "Scope 3", "Assurance", "Assessment", "JCM", "EPR",
     "Japan Carbon", "Bilateral Carbon", "Global Sustainability", "G20 Climate",
-    # ── Broad catch-alls (intentionally last) ───────────────────────────────
+    # ── Broad catch-alls ─────────────────────────────────────────────────────
     "Sustainability", "Green Finance", "ESG", "Emissions", "Solar",
 ]
 
@@ -191,7 +154,6 @@ SEBI_KEYWORDS = [
     "Assessment", "BRSR Core"
 ]
 
-# Each source: org name, homepage URL, RSS feed URL (or None), keywords, category, parser type
 SOURCES = [
     # ── Tenders ──────────────────────────────────────────────────────────────
     {
@@ -210,9 +172,6 @@ SOURCES = [
         "category": "Tenders",
         "parser": "gem",
     },
-    # FIX: added the third CPPP URL that was in the tracking list but absent from SOURCES.
-    # This is a pre-filtered active-tenders view (base64 path param) that surfaces
-    # different results than the plain /cpppdata endpoint.
     {
         "org": "CPPP Active Tenders – Filtered",
         "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata/byYzJWc1pXTjBBMTNoMWMyVnNaV04wQTEzaDFjSFZpYkdsemFIVmtYMlJoZEdVPUExM2gxUWxKVFVnPT0=",
@@ -326,13 +285,6 @@ SOURCES = [
         "category": "ESG News",
         "parser": "rss_news",
     },
-    # FIX: PIB switched to "pib" parser.
-    # PIB's website is an ASP.NET GridView — it renders press-release rows as
-    # <table><tr><td> elements, not <article> or CSS-class divs. The generic
-    # rss_news HTML fallback (which looks for article/card/post class names)
-    # finds nothing on PIB pages, so if the RSS fails the source goes silent.
-    # The new parse_pib function mirrors the SEBI table-row approach and works
-    # on PIB's HTML structure, giving a reliable second layer of coverage.
     {
         "org": "Govt of India (PIB)",
         "url": "https://www.pib.gov.in/allRel.aspx?reg=1&lang=1",
@@ -393,7 +345,6 @@ SESSION.headers.update({
     "Connection": "keep-alive",
 })
 
-# Warm SEBI session once at startup
 try:
     SESSION.get("https://www.sebi.gov.in/", timeout=15)
 except Exception:
@@ -408,22 +359,24 @@ def make_uid(url: str, title: str = "") -> str:
     content = url.strip() if url and url.startswith("http") else title.strip()
     return hashlib.md5(content.encode("utf-8")).hexdigest()[:14]
 
+
 def first_keyword_match(text: str, keywords: list) -> str | None:
     """
     Return the most specific (longest) keyword whose whole-word form appears in text.
-    Sorting by length descending ensures 'ESG Disclosure' wins over 'ESG',
-    'BRSR Core' wins over 'BRSR', 'Carbon Border Adjustment' wins over 'Carbon Border', etc.
+    FIX: Allows for plural forms ('s') to catch terms like GHGs, EVs, or standards.
     """
     text_lower = text.lower()
     for kw in sorted(keywords, key=len, reverse=True):
-        pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}(?![a-zA-Z0-9])"
+        pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}s?(?![a-zA-Z0-9])"
         if re.search(pattern, text_lower):
             return kw
     return None
 
+
 def clean_snippet(text: str, max_len: int = 260) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len] + "…" if len(text) > max_len else text
+
 
 def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | None:
     """GET a page and return its parsed soup, or None on failure."""
@@ -441,12 +394,7 @@ def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | N
 
 
 def fetch_rss(rss_url: str):
-    """
-    Fetch an RSS/Atom feed using the SESSION's browser User-Agent (avoids 403s that
-    feedparser triggers with its own UA), then parse the downloaded content with
-    feedparser so we still get all its date/entry normalisation.
-    Returns a feedparser FeedParserDict or None on failure.
-    """
+    """Fetch an RSS feed using custom session configurations."""
     if not FEEDPARSER_AVAILABLE:
         return None
     try:
@@ -467,16 +415,12 @@ def fetch_rss(rss_url: str):
 # ==========================================
 
 def parse_rss(source: dict) -> list[dict]:
-    """
-    Primary parser for all news/blog sites.
-    Tries the RSS feed first (cleanest data), falls back to HTML scraping.
-    """
+    """Primary parser for news blogs; attempts RSS first, falls back to HTML parsing."""
     hits, seen = [], set()
     keywords = source["keywords"]
     org = source["org"]
     base_url = source["url"]
 
-    # ─ RSS path ────────────────────────────────────────────────────────────
     rss_url = source.get("rss")
     if rss_url:
         feed = fetch_rss(rss_url)
@@ -487,7 +431,6 @@ def parse_rss(source: dict) -> list[dict]:
                 summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
                 pub_date = entry.get("published", entry.get("updated", ""))
 
-                # Skip items older than RECENCY_DAYS
                 dt = parse_fuzzy_date(pub_date)
                 if dt and dt < RECENCY_CUTOFF:
                     continue
@@ -509,15 +452,11 @@ def parse_rss(source: dict) -> list[dict]:
             if hits:
                 return hits
 
-    # ─ HTML fallback ───────────────────────────────────────────────────────
     soup = fetch_soup(base_url)
     if not soup:
         return []
 
-    # Strategy A: <article> containers
     containers = soup.find_all("article") or []
-
-    # Strategy B: divs/sections with post/card/article in class
     if not containers:
         containers = soup.select(
             'div[class*="post"], div[class*="card"], div[class*="article"], '
@@ -525,7 +464,6 @@ def parse_rss(source: dict) -> list[dict]:
             'div[class*="news"], section[class*="article"]'
         )
 
-    # Strategy C: all h2/h3 heading links (broadest catch-all)
     heading_links = []
     for h in soup.find_all(["h2", "h3"]):
         a = h.find("a", href=True)
@@ -547,8 +485,7 @@ def parse_rss(source: dict) -> list[dict]:
         kw = first_keyword_match(f"{title} {body_text}", keywords)
         if kw:
             seen.add(href)
-            date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) \
-                      or container.find("time")
+            date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) or container.find("time")
             raw_date = date_el.get_text(strip=True) if date_el else ""
             hits.append({
                 "org": org,
@@ -573,8 +510,7 @@ def parse_rss(source: dict) -> list[dict]:
         kw = first_keyword_match(f"{title} {body_text}", keywords)
         if kw:
             seen.add(href)
-            date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)})
-                       or context.find("time")) if context else None
+            date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) or context.find("time")) if context else None
             raw_date = date_el.get_text(strip=True) if date_el else ""
             hits.append({
                 "org": org,
@@ -593,20 +529,13 @@ def parse_rss(source: dict) -> list[dict]:
 def parse_sebi(source: dict) -> list[dict]:
     """
     SEBI government portal parser.
-    Pages are JSP-rendered server-side; content is in <table> rows.
-    Requires a warmed session (homepage cookie) to avoid 403.
-    FIX: now uses REGULATORY_RECENCY_CUTOFF (90 days) instead of the news
-    RECENCY_CUTOFF (60 days). SEBI circulars are infrequent; the shorter
-    window was silently dropping valid items that fell just outside 60 days.
+    FIX: Implemented up to 3 deep pagination sweeps to uncover older 90-day 
+    regulatory circulars pushed back by higher volume unrelated updates.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
     org = source["org"]
     base_url = source["url"]
-
-    soup = fetch_soup(base_url, extra_headers={"Referer": "https://www.sebi.gov.in/"})
-    if not soup:
-        return []
 
     DATE_RE = re.compile(
         r"(\d{1,2}[-/]\w{3}[-/]\d{4}|\w{3,9}\s+\d{1,2},?\s+\d{4}"
@@ -615,11 +544,9 @@ def parse_sebi(source: dict) -> list[dict]:
     )
 
     def _process(title, href, row_text, date_str):
-        """Shared logic: dedup, recency check, keyword match, append."""
         nonlocal hits, seen
         if href in seen or len(title) < 5:
             return
-        # FIX: use REGULATORY_RECENCY_CUTOFF here, not RECENCY_CUTOFF
         dt = parse_fuzzy_date(date_str)
         if dt and dt < REGULATORY_RECENCY_CUTOFF:
             return
@@ -638,58 +565,47 @@ def parse_sebi(source: dict) -> list[dict]:
             "uid": make_uid(href, title),
         })
 
-    for row in soup.find_all("tr"):
-        a = row.find("a", href=True)
-        if not a:
+    # Loop through page index boundaries 1 to 3
+    for page_num in range(1, 4):
+        paged_url = f"{base_url}&pageNo={page_num}" if "?" in base_url else f"{base_url}?pageNo={page_num}"
+        soup = fetch_soup(paged_url, extra_headers={"Referer": "https://www.sebi.gov.in/"})
+        if not soup:
             continue
-        title = a.get_text(strip=True)
-        href = a["href"]
-        if not href.startswith("http"):
-            href = urljoin("https://www.sebi.gov.in", href)
-        row_text = row.get_text(separator=" ", strip=True)
-        date_match = DATE_RE.search(row_text)
-        _process(title, href, row_text, date_match.group(1) if date_match else "")
 
-    # Also catch list-item format pages
-    for li in soup.find_all("li"):
-        a = li.find("a", href=True)
-        if not a:
-            continue
-        title = a.get_text(strip=True)
-        href = a["href"]
-        if not href.startswith("http"):
-            href = urljoin("https://www.sebi.gov.in", href)
-        li_text = li.get_text(separator=" ", strip=True)
-        date_match = DATE_RE.search(li_text)
-        _process(title, href, li_text, date_match.group(1) if date_match else "")
+        for row in soup.find_all("tr"):
+            a = row.find("a", href=True)
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            href = a["href"]
+            if not href.startswith("http"):
+                href = urljoin("https://www.sebi.gov.in", href)
+            row_text = row.get_text(separator=" ", strip=True)
+            date_match = DATE_RE.search(row_text)
+            _process(title, href, row_text, date_match.group(1) if date_match else "")
+
+        for li in soup.find_all("li"):
+            a = li.find("a", href=True)
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            href = a["href"]
+            if not href.startswith("http"):
+                href = urljoin("https://www.sebi.gov.in", href)
+            li_text = li.get_text(separator=" ", strip=True)
+            date_match = DATE_RE.search(li_text)
+            _process(title, href, li_text, date_match.group(1) if date_match else "")
 
     return hits
 
 
 def parse_pib(source: dict) -> list[dict]:
-    """
-    FIX: New parser for PIB (Press Information Bureau).
-
-    PIB's listing page is an ASP.NET GridView. It renders as a plain HTML
-    <table> with one press-release per <tr>, not as <article> tags or CSS
-    class-named divs. The generic rss_news HTML fallback never finds anything
-    on these pages, so any day the RSS feed returns nothing (common for .aspx
-    RSS endpoints that time out or return 0 entries) the source goes totally
-    silent in the digest.
-
-    This parser:
-      1. Tries the RSS feed first (same as rss_news) for clean structured data.
-      2. Falls back to table-row parsing — identical strategy to parse_sebi —
-         which reliably finds press-release links and dates on PIB's HTML pages.
-      3. Uses REALTIME_KEYWORDS (broad) so all relevant ESG press releases are caught.
-      4. Uses RECENCY_CUTOFF (60 days) since PIB publishes daily.
-    """
+    """Press Information Bureau layout engine parsing logic."""
     hits, seen = [], set()
     keywords = source["keywords"]
     org = source["org"]
     base_url = source["url"]
 
-    # ─ RSS path (attempt first for clean structured data) ──────────────────
     rss_url = source.get("rss")
     if rss_url:
         feed = fetch_rss(rss_url)
@@ -721,7 +637,6 @@ def parse_pib(source: dict) -> list[dict]:
             if hits:
                 return hits
 
-    # ─ HTML fallback: table-row parsing (mirrors parse_sebi strategy) ──────
     soup = fetch_soup(base_url)
     if not soup:
         return []
@@ -754,7 +669,6 @@ def parse_pib(source: dict) -> list[dict]:
             "uid": make_uid(href, title),
         })
 
-    # Table rows (primary structure on PIB listing pages)
     for row in soup.find_all("tr"):
         a = row.find("a", href=True)
         if not a:
@@ -767,7 +681,6 @@ def parse_pib(source: dict) -> list[dict]:
         date_match = DATE_RE.search(row_text)
         _process(title, href, row_text, date_match.group(1) if date_match else "")
 
-    # List items (alternate layout used on some PIB sub-pages)
     for li in soup.find_all("li"):
         a = li.find("a", href=True)
         if not a:
@@ -786,7 +699,7 @@ def parse_pib(source: dict) -> list[dict]:
 def parse_gem(source: dict) -> list[dict]:
     """
     Government e-procurement / GeM tender portal parser.
-    Tender data is typically in HTML tables or structured list rows.
+    FIX: Added dynamic execution fallback checks to alert logs if dynamic tables run empty.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
@@ -797,7 +710,11 @@ def parse_gem(source: dict) -> list[dict]:
     if not soup:
         return []
 
-    for row in soup.find_all("tr"):
+    rows = soup.find_all("tr")
+    if not rows:
+        print(f"    ⚠  No static HTML elements found for {org}. Dynamic client-side parsing needed.")
+
+    for row in rows:
         row_text = row.get_text(separator=" ", strip=True)
         if len(row_text) < 10:
             continue
@@ -831,7 +748,7 @@ def parse_gem(source: dict) -> list[dict]:
 PARSER_MAP = {
     "rss_news": parse_rss,
     "sebi":     parse_sebi,
-    "pib":      parse_pib,   # FIX: new entry for PIB-specific parser
+    "pib":      parse_pib,
     "gem":      parse_gem,
 }
 
@@ -896,9 +813,6 @@ if not df_new.empty:
 # 8. EMAIL HTML BUILDER
 # ==========================================
 
-# FIX: CATEGORY_STYLE is ordered Regulatory → ESG News → Tenders.
-# Python dicts preserve insertion order (3.7+), so the email sections and
-# the summary bar both render Regulatory first — no further sorting needed.
 CATEGORY_STYLE = {
     "Regulatory": {
         "header_bg":  "#78350f",
@@ -927,6 +841,7 @@ WRAPPER_STYLE = (
     'font-family:Arial,Helvetica,sans-serif;max-width:760px;'
     'margin:0 auto;background:#f1f5f9;padding:20px;'
 )
+
 
 def render_header(count: int) -> str:
     return f"""
@@ -974,9 +889,11 @@ def render_article_card(row: pd.Series, cfg: dict) -> str:
       <table width="100%" cellspacing="0" cellpadding="0" border="0">
         <tr>
           <td width="1" valign="top" style="padding-right:12px;">
+            <!-- FIX: Modified space formatting parameters below to force wrapping on ultra-long tracking labels -->
             <span style="background:{cfg["badge_bg"]};color:#fff;font-size:10px;
                          font-weight:700;padding:2px 9px;border-radius:12px;
-                         white-space:nowrap;display:inline-block;">
+                         white-space:normal;display:inline-block;max-width:180px;
+                         line-height:1.2;text-align:center;">
               {row["keyword"]}
             </span>
           </td>
@@ -1043,10 +960,6 @@ def build_email(df_new: pd.DataFrame) -> str:
           {render_footer()}
         </div>"""
 
-    # FIX: Regulatory is first in CATEGORY_STYLE, so it renders first in both
-    # the summary bar pills and the section blocks. always_show=True for
-    # Regulatory ensures the section appears even on days with no new circulars,
-    # giving a visual confirmation that the regulatory sweep ran.
     sections = "".join(
         render_category_section(df_new, cat, cfg, always_show=(cat == "Regulatory"))
         for cat, cfg in CATEGORY_STYLE.items()
