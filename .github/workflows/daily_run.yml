@@ -1,34 +1,36 @@
-name: Independent Automated Scraper Run
+name: ESG Intelligence Daily Sweep
 
 on:
   schedule:
-    # Runs precisely at 09:00 AM IST (03:30 AM UTC) daily
+    # 09:00 AM IST = 03:30 AM UTC
     - cron: '30 3 * * *'
-  workflow_dispatch: # Retains manual manual execution button trigger
+  workflow_dispatch:
 
 jobs:
-  execute-pipeline:
+  sweep:
     runs-on: ubuntu-latest
+
     steps:
-    - name: Access Repository Files
-      uses: actions/checkout@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
-    - name: Initialize Environment Runtime
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-    - name: Provision Required Module Libraries
-      run: |
-        pip install requests beautifulsoup4 pandas openpyxl
+      - name: Install Dependencies
+        run: |
+          pip install requests beautifulsoup4 pandas openpyxl feedparser lxml
 
-    - name: Run Web Scraper Engine
-      run: python scraper.py
+      - name: Run ESG Scraper
+        run: python scraper.py
 
-    - name: Commit and Save Internal History Memory State
-      run: |
-        git config --local user.email "actions@github.com"
-        git config --local user.name "GitHub Actions Automated Pipeline"
-        git add Historical_Matches.csv Email_Summary.html || true
-        git commit -m "Automated update: Track memory and refresh email template [skip ci]" -a || true
-        git push || true
+      - name: Persist History & Email Archive
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "ESG Intelligence Bot"
+          git add Historical_Matches.csv Email_Summary.html || true
+          git diff --staged --quiet || \
+            git commit -m "chore: daily sweep $(date '+%Y-%m-%d') [skip ci]"
+          git push || true
