@@ -31,25 +31,42 @@ RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
 def parse_fuzzy_date(text: str):
     """
     Try to parse a date string into an aware datetime.
-    Handles: RFC-2822 (RSS), 'Jan 10, 2024', '10-Jan-2024', 'dd/mm/yyyy', 'dd-mm-yyyy'.
+    Handles: RFC-2822 (RSS), 'Jan 30, 2026', 'Apr 07, 2026', '10-Jan-2024',
+             'dd/mm/yyyy', 'dd-mm-yyyy', 'YYYY-MM-DD'.
     Returns None if unparseable.
     """
     if not text:
         return None
     text = text.strip()
-    # RFC-2822 (RSS feeds)
+    # RFC-2822 (RSS feeds: "Thu, 04 Jun 2026 00:00:00 +0000")
     try:
         return parsedate_to_datetime(text)
     except Exception:
         pass
-    # Common date-only formats
-    for fmt in ("%b %d, %Y", "%d %b %Y", "%d-%b-%Y", "%d/%m/%Y", "%d-%m-%Y",
-                "%Y-%m-%d", "%B %d, %Y", "%d %B %Y"):
-        try:
-            dt = datetime.strptime(text[:len(fmt) + 2].strip(), fmt)
-            return dt.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
+    # Extract the first date-like token from a longer string (e.g. SEBI row text)
+    # Try common date-only formats directly against full string — no slicing
+    candidates = [text]
+    # Also try pulling out just the first 12–16 chars in case of trailing garbage
+    if len(text) > 16:
+        candidates.append(text[:16].strip())
+        candidates.append(text[:12].strip())
+    for candidate in candidates:
+        for fmt in (
+            "%b %d, %Y",   # Jan 30, 2026  /  Apr 07, 2026
+            "%B %d, %Y",   # January 30, 2026
+            "%d %b %Y",    # 30 Jan 2026
+            "%d %B %Y",    # 30 January 2026
+            "%d-%b-%Y",    # 30-Jan-2026
+            "%d/%m/%Y",    # 30/01/2026
+            "%d-%m-%Y",    # 30-01-2026
+            "%Y-%m-%d",    # 2026-01-30
+            "%m/%d/%Y",    # 01/30/2026 (US)
+        ):
+            try:
+                dt = datetime.strptime(candidate, fmt)
+                return dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
     return None
 
 
@@ -69,32 +86,51 @@ TENDER_KEYWORDS = [
 ]
 
 REALTIME_KEYWORDS = [
-    "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint", "Carbon Neutral",
-    "Carbon Sequestration", "Carbon Market", "Carbon Border", "Carbon Tax", "Carbon Price",
-    "Net Zero", "Climate Change", "Climate Risk", "Climate Action", "Climate Finance",
-    "Climate Policy", "Climate Tech", "Carbon Removal", "Decarbonisation", "Emissions Reduction",
-    "Paris Agreement", "COP", "Global Warming", "Clean Energy Transition", "ESG",
-    "ESG Disclosure", "ESG Reporting", "ESG Investing", "ESG Rating", "ESG Framework",
-    "ESG Score", "BRSR", "BRSR Core", "Assurance", "Assessment", "Sustainab", "Sustainability",
-    "Sustainable Finance", "Green Finance", "TCFD", "GRI", "CSRD", "ISSB", "SASB",
-    "Integrated Reporting", "Double Materiality", "LODR", "Scope 1", "Scope 2", "Scope 3",
-    "GHG", "Greenhouse Gas", "Greenhouse Gases", "Emissions", "Net Emissions",
-    "Carbon Emissions", "Methane", "Renewable Energy", "Solar", "Wind Energy",
-    "Green Hydrogen", "Energy Transition", "Clean Tech", "Battery Storage", "EV",
-    "Electric Vehicle", "Green Bond", "Sustainability Bond", "Transition Finance",
-    "Blended Finance", "Impact Investing", "ESG Fund", "Taxonomy", "Greenwashing",
-    "Voluntary Carbon Market", "Compliance Carbon", "Article 6", "Carbon Credits",
-    "Carbon Standard", "Verra", "Gold Standard", "Carbon Registry", "IFRS S1", "IFRS S2",
-    "Carbon Offsetting", "Nature Based Solutions", "Biodiversity", "Nature Loss", "TNFD",
-    "SBTN", "Ecosystem Services", "Biodiversity Credits", "Deforestation", "EUDR",
-    "Biodiversity Net Gain", "Kunming Montreal", "Forest Carbon", "Water Stewardship",
-    "Water Risk", "Water Stress", "Water Footprint", "Blue Carbon", "Ocean Carbon",
-    "CBAM", "Carbon Border Adjustment", "EU Carbon Tax", "EU ETS", "Carbon Leakage",
-    "EU Green Deal", "Circular Economy", "EPR", "Extended Producer Responsibility",
-    "Green Investment", "ESG Portfolio", "India Net Zero", "India ESG", "India Sustainability",
-    "ESG Conference", "Carbon Summit", "Sustainability Summit", "Green Finance Summit",
-    "Bioenergy", "Biomass", "Biochar", "BECCS", "Waste to Energy", "Joint Crediting Mechanism",
-    "JCM", "Article 6.2", "Plastic Pollution", "Plastic Credit", "Global Plastics Treaty",
+    # ── Carbon & Emissions (specific first) ──────────────────────────────────
+    "Carbon Border Adjustment", "Voluntary Carbon Market", "Joint Crediting Mechanism",
+    "Carbon Sequestration", "Carbon Offsetting", "Emissions Reduction", "Carbon Removal",
+    "Carbon Footprint", "Carbon Credits", "Carbon Trading", "Carbon Neutral", "Carbon Offset",
+    "Carbon Credit", "Carbon Market", "Carbon Border", "Carbon Leakage", "Carbon Emissions",
+    "Carbon Price", "Carbon Tax", "Net Emissions", "Carbon Standard", "Carbon Registry",
+    "Net Zero",
+    # ── Climate (specific first) ─────────────────────────────────────────────
+    "Clean Energy Transition", "Global Plastics Treaty", "Decarbonisation",
+    "Climate Finance", "Climate Policy", "Climate Action", "Climate Change",
+    "Climate Risk", "Climate Tech", "Paris Agreement", "Global Warming",
+    # ── Reporting Standards ───────────────────────────────────────────────────
+    "Listing Obligations and Disclosure Requirements",
+    "Extended Producer Responsibility", "Biodiversity Net Gain",
+    "Nature Based Solutions", "Ecosystem Services", "Integrated Reporting",
+    "Double Materiality", "Greenhouse Gases", "Greenhouse Gas",
+    "Sustainability Bond", "Sustainability Summit", "Sustainable Finance",
+    "Green Finance Summit", "Biodiversity Credits", "ESG Disclosure",
+    "ESG Reporting", "ESG Investing", "ESG Framework", "ESG Portfolio",
+    "ESG Conference", "ESG Rating", "ESG Score", "ESG Fund",
+    "BRSR Core", "IFRS S1", "IFRS S2", "Article 6.2", "Article 6",
+    "CSRD", "ISSB", "LODR", "TCFD", "BRSR", "SASB", "TNFD", "SBTN",
+    "GRI", "GHG", "COP",
+    # ── Finance & Investment ─────────────────────────────────────────────────
+    "India Sustainability", "Transition Finance", "Blended Finance",
+    "Impact Investing", "Green Investment", "India Net Zero", "India ESG",
+    "Carbon Summit", "Green Bond", "Taxonomy", "Greenwashing",
+    "Compliance Carbon", "Gold Standard", "Verra",
+    # ── Energy ───────────────────────────────────────────────────────────────
+    "Waste to Energy", "Energy Transition", "Renewable Energy", "Green Hydrogen",
+    "Wind Energy", "Battery Storage", "Electric Vehicle", "Clean Tech",
+    # ── Nature & Water ───────────────────────────────────────────────────────
+    "Water Stewardship", "Water Security", "Water Footprint", "Water Stress",
+    "Water Risk", "Blue Carbon", "Ocean Carbon", "Forest Carbon",
+    "Kunming Montreal", "Deforestation", "Nature Loss", "Biodiversity",
+    "EUDR",
+    # ── Circular / Trade ─────────────────────────────────────────────────────
+    "Circular Economy", "Plastic Pollution", "Plastic Credit",
+    "Carbon Border", "EU Green Deal", "EU Carbon Tax", "EU ETS", "CBAM",
+    # ── Other specific ───────────────────────────────────────────────────────
+    "Bioenergy", "Biochar", "Biomass", "BECCS", "Methane", "Scope 1", "Scope 2", "Scope 3",
+    "Assurance", "Assessment",
+    "JCM", "EPR",
+    # ── Broad catch-alls (intentionally last) ───────────────────────────────
+    "Sustainability", "Green Finance", "ESG", "Emissions", "Solar",
 ]
 
 SEBI_KEYWORDS = [
@@ -302,9 +338,13 @@ def make_uid(url: str, title: str = "") -> str:
     return hashlib.md5(content.encode("utf-8")).hexdigest()[:14]
 
 def first_keyword_match(text: str, keywords: list) -> str | None:
-    """Return the first keyword whose whole-word form appears in text."""
+    """
+    Return the most specific (longest) keyword whose whole-word form appears in text.
+    Sorting by length descending ensures 'ESG Disclosure' wins over 'ESG',
+    'BRSR Core' wins over 'BRSR', 'Carbon Border Adjustment' wins over 'Carbon Border', etc.
+    """
     text_lower = text.lower()
-    for kw in keywords:
+    for kw in sorted(keywords, key=len, reverse=True):
         pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}(?![a-zA-Z0-9])"
         if re.search(pattern, text_lower):
             return kw
@@ -328,6 +368,29 @@ def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | N
         print(f"    ✗  Fetch error for {url}: {e}")
     return None
 
+
+def fetch_rss(rss_url: str):
+    """
+    Fetch an RSS/Atom feed using the SESSION's browser User-Agent (avoids 403s that
+    feedparser triggers with its own UA), then parse the downloaded content with
+    feedparser so we still get all its date/entry normalisation.
+    Returns a feedparser FeedParserDict or None on failure.
+    """
+    if not FEEDPARSER_AVAILABLE:
+        return None
+    try:
+        r = SESSION.get(
+            rss_url,
+            headers={"Accept": "application/rss+xml,application/xml,text/xml,*/*;q=0.8"},
+            timeout=20,
+        )
+        if r.status_code == 200 and len(r.text) > 100:
+            return feedparser.parse(r.text)
+        print(f"    ⚠  RSS HTTP {r.status_code} from {rss_url}")
+    except Exception as e:
+        print(f"    ✗  RSS fetch error for {rss_url}: {e}")
+    return None
+
 # ==========================================
 # 4. PARSERS
 # ==========================================
@@ -344,39 +407,36 @@ def parse_rss(source: dict) -> list[dict]:
 
     # ─ RSS path ────────────────────────────────────────────────────────────
     rss_url = source.get("rss")
-    if rss_url and FEEDPARSER_AVAILABLE:
-        try:
-            feed = feedparser.parse(rss_url)
-            if feed.entries:
-                for entry in feed.entries:
-                    title = entry.get("title", "").strip()
-                    link = entry.get("link", "").strip()
-                    summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
-                    pub_date = entry.get("published", entry.get("updated", ""))
+    if rss_url:
+        feed = fetch_rss(rss_url)
+        if feed and feed.entries:
+            for entry in feed.entries:
+                title = entry.get("title", "").strip()
+                link = entry.get("link", "").strip()
+                summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
+                pub_date = entry.get("published", entry.get("updated", ""))
 
-                    # Skip items older than RECENCY_DAYS
-                    dt = parse_fuzzy_date(pub_date)
-                    if dt and dt < RECENCY_CUTOFF:
-                        continue
+                # Skip items older than RECENCY_DAYS
+                dt = parse_fuzzy_date(pub_date)
+                if dt and dt < RECENCY_CUTOFF:
+                    continue
 
-                    check = f"{title} {summary}"
-                    kw = first_keyword_match(check, keywords)
-                    if kw and link not in seen:
-                        seen.add(link)
-                        hits.append({
-                            "org": org,
-                            "category": source["category"],
-                            "keyword": kw,
-                            "title": title,
-                            "article_url": link,
-                            "date": fmt_date(pub_date),
-                            "snippet": clean_snippet(summary),
-                            "uid": make_uid(link, title),
-                        })
-                if hits:
-                    return hits
-        except Exception as e:
-            print(f"    ⚠  RSS parse error ({rss_url}): {e}")
+                check = f"{title} {summary}"
+                kw = first_keyword_match(check, keywords)
+                if kw and link not in seen:
+                    seen.add(link)
+                    hits.append({
+                        "org": org,
+                        "category": source["category"],
+                        "keyword": kw,
+                        "title": title,
+                        "article_url": link,
+                        "date": fmt_date(pub_date),
+                        "snippet": clean_snippet(summary),
+                        "uid": make_uid(link, title),
+                    })
+            if hits:
+                return hits
 
     # ─ HTML fallback ───────────────────────────────────────────────────────
     soup = fetch_soup(base_url)
