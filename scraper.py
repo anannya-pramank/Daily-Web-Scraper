@@ -4,8 +4,9 @@ import hashlib
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
+from email.utils import parsedate_to_datetime
 
 try:
     import feedparser
@@ -21,6 +22,43 @@ POWER_AUTOMATE_URL = "https://defaultfd7143fa1107460d98b18ef251b16d.50.environme
 
 TODAY_STR = datetime.now().strftime("%d %B %Y")
 HISTORY_PATH = "Historical_Matches.csv"
+
+# Items older than this many days are ignored (prevents stale SEBI dumps on first run)
+RECENCY_DAYS = 60
+RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
+
+
+def parse_fuzzy_date(text: str):
+    """
+    Try to parse a date string into an aware datetime.
+    Handles: RFC-2822 (RSS), 'Jan 10, 2024', '10-Jan-2024', 'dd/mm/yyyy', 'dd-mm-yyyy'.
+    Returns None if unparseable.
+    """
+    if not text:
+        return None
+    text = text.strip()
+    # RFC-2822 (RSS feeds)
+    try:
+        return parsedate_to_datetime(text)
+    except Exception:
+        pass
+    # Common date-only formats
+    for fmt in ("%b %d, %Y", "%d %b %Y", "%d-%b-%Y", "%d/%m/%Y", "%d-%m-%Y",
+                "%Y-%m-%d", "%B %d, %Y", "%d %B %Y"):
+        try:
+            dt = datetime.strptime(text[:len(fmt) + 2].strip(), fmt)
+            return dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def fmt_date(raw: str) -> str:
+    """Return a clean 'DD Mon YYYY' string, or the raw string if unparseable."""
+    dt = parse_fuzzy_date(raw)
+    if dt:
+        return dt.strftime("%d %b %Y")
+    return raw
 
 TENDER_KEYWORDS = [
     "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint", "Carbon Neutral",
@@ -84,8 +122,16 @@ SOURCES = [
         "parser": "gem",
     },
     {
-        "org": "CPPP Active Tenders",
+        "org": "CPPP Active Tenders – Central",
         "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata",
+        "rss": None,
+        "keywords": TENDER_KEYWORDS,
+        "category": "Tenders",
+        "parser": "gem",
+    },
+    {
+        "org": "CPPP Active Tenders – State",
+        "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/mmpdata",
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
@@ -308,6 +354,11 @@ def parse_rss(source: dict) -> list[dict]:
                     summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
                     pub_date = entry.get("published", entry.get("updated", ""))
 
+                    # Skip items older than RECENCY_DAYS
+                    dt = parse_fuzzy_date(pub_date)
+                    if dt and dt < RECENCY_CUTOFF:
+                        continue
+
                     check = f"{title} {summary}"
                     kw = first_keyword_match(check, keywords)
                     if kw and link not in seen:
@@ -318,7 +369,7 @@ def parse_rss(source: dict) -> list[dict]:
                             "keyword": kw,
                             "title": title,
                             "article_url": link,
-                            "date": pub_date[:16] if pub_date else "",
+                            "date": fmt_date(pub_date),
                             "snippet": clean_snippet(summary),
                             "uid": make_uid(link, title),
                         })
@@ -367,13 +418,14 @@ def parse_rss(source: dict) -> list[dict]:
             seen.add(href)
             date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) \
                       or container.find("time")
+            raw_date = date_el.get_text(strip=True) if date_el else ""
             hits.append({
                 "org": org,
                 "category": source["category"],
                 "keyword": kw,
                 "title": title,
                 "article_url": href,
-                "date": date_el.get_text(strip=True) if date_el else "",
+                "date": fmt_date(raw_date) if raw_date else "",
                 "snippet": clean_snippet(body_text),
                 "uid": make_uid(href, title),
             })
@@ -392,13 +444,14 @@ def parse_rss(source: dict) -> list[dict]:
             seen.add(href)
             date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)})
                        or context.find("time")) if context else None
+            raw_date = date_el.get_text(strip=True) if date_el else ""
             hits.append({
                 "org": org,
                 "category": source["category"],
                 "keyword": kw,
                 "title": title,
                 "article_url": href,
-                "date": date_el.get_text(strip=True) if date_el else "",
+                "date": fmt_date(raw_date) if raw_date else "",
                 "snippet": clean_snippet(body_text),
                 "uid": make_uid(href, title),
             })
@@ -411,6 +464,7 @@ def parse_sebi(source: dict) -> list[dict]:
     SEBI government portal parser.
     Pages are JSP-rendered server-side; content is in <table> rows.
     Requires a warmed session (homepage cookie) to avoid 403.
+    Only returns items published within RECENCY_DAYS to avoid stale dumps.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
@@ -421,39 +475,47 @@ def parse_sebi(source: dict) -> list[dict]:
     if not soup:
         return []
 
-    for row in soup.find_all("tr"):
-        a = row.find("a", href=True)
-        if not a:
-            continue
+    DATE_RE = re.compile(
+        r"(\d{1,2}[-/]\w{3}[-/]\d{4}|\w{3,9}\s+\d{1,2},?\s+\d{4}"
+        r"|\d{2}[-/]\d{2}[-/]\d{4}|\d{1,2}\s+\w{3,9}\s+\d{4})",
+        re.IGNORECASE,
+    )
 
-        title = a.get_text(strip=True)
-        href = a["href"]
-        if not href.startswith("http"):
-            href = urljoin("https://www.sebi.gov.in", href)
+    def _process(title, href, row_text, date_str):
+        """Shared logic: dedup, recency check, keyword match, append."""
+        nonlocal hits, seen
         if href in seen or len(title) < 5:
-            continue
-
-        row_text = row.get_text(separator=" ", strip=True)
+            return
+        # Recency gate — skip if date is parseable but older than cutoff
+        dt = parse_fuzzy_date(date_str)
+        if dt and dt < RECENCY_CUTOFF:
+            return
         kw = first_keyword_match(title, keywords) or first_keyword_match(row_text, keywords)
         if not kw:
-            continue
-
+            return
         seen.add(href)
-        # Extract date from any cell (SEBI uses formats like "Jan 10, 2024")
-        date_match = re.search(
-            r"(\d{1,2}[-/]\w{3}[-/]\d{4}|\w{3,9}\s+\d{1,2},?\s+\d{4}|\d{2}[-/]\d{2}[-/]\d{4})",
-            row_text,
-        )
         hits.append({
             "org": org,
             "category": source["category"],
             "keyword": kw,
             "title": title,
             "article_url": href,
-            "date": date_match.group(1) if date_match else "",
+            "date": fmt_date(date_str) if date_str else "",
             "snippet": clean_snippet(row_text),
             "uid": make_uid(href, title),
         })
+
+    for row in soup.find_all("tr"):
+        a = row.find("a", href=True)
+        if not a:
+            continue
+        title = a.get_text(strip=True)
+        href = a["href"]
+        if not href.startswith("http"):
+            href = urljoin("https://www.sebi.gov.in", href)
+        row_text = row.get_text(separator=" ", strip=True)
+        date_match = DATE_RE.search(row_text)
+        _process(title, href, row_text, date_match.group(1) if date_match else "")
 
     # Also catch list-item format pages
     for li in soup.find_all("li"):
@@ -464,21 +526,9 @@ def parse_sebi(source: dict) -> list[dict]:
         href = a["href"]
         if not href.startswith("http"):
             href = urljoin("https://www.sebi.gov.in", href)
-        if href in seen or len(title) < 5:
-            continue
-        kw = first_keyword_match(title, keywords)
-        if kw:
-            seen.add(href)
-            hits.append({
-                "org": org,
-                "category": source["category"],
-                "keyword": kw,
-                "title": title,
-                "article_url": href,
-                "date": "",
-                "snippet": clean_snippet(title),
-                "uid": make_uid(href, title),
-            })
+        li_text = li.get_text(separator=" ", strip=True)
+        date_match = DATE_RE.search(li_text)
+        _process(title, href, li_text, date_match.group(1) if date_match else "")
 
     return hits
 
@@ -597,12 +647,12 @@ if not df_new.empty:
 # ==========================================
 
 CATEGORY_STYLE = {
-    "Tenders": {
-        "header_bg":  "#1e40af",
-        "badge_bg":   "#1e40af",
-        "border":     "#3b82f6",
-        "light_bg":   "#eff6ff",
-        "icon":       "📋",
+    "Regulatory": {
+        "header_bg":  "#78350f",
+        "badge_bg":   "#d97706",
+        "border":     "#f59e0b",
+        "light_bg":   "#fffbeb",
+        "icon":       "⚖️",
     },
     "ESG News": {
         "header_bg":  "#065f46",
@@ -611,12 +661,12 @@ CATEGORY_STYLE = {
         "light_bg":   "#ecfdf5",
         "icon":       "📰",
     },
-    "Regulatory": {
-        "header_bg":  "#78350f",
-        "badge_bg":   "#d97706",
-        "border":     "#f59e0b",
-        "light_bg":   "#fffbeb",
-        "icon":       "⚖️",
+    "Tenders": {
+        "header_bg":  "#1e40af",
+        "badge_bg":   "#1e40af",
+        "border":     "#3b82f6",
+        "light_bg":   "#eff6ff",
+        "icon":       "📋",
     },
 }
 
@@ -693,11 +743,21 @@ def render_article_card(row: pd.Series, cfg: dict) -> str:
     </div>"""
 
 
-def render_category_section(df: pd.DataFrame, category: str, cfg: dict) -> str:
+def render_category_section(df: pd.DataFrame, category: str, cfg: dict, always_show: bool = False) -> str:
     cat_df = df[df["category"] == category]
     if cat_df.empty:
-        return ""
-    cards = "".join(render_article_card(row, cfg) for _, row in cat_df.iterrows())
+        if not always_show:
+            return ""
+        # Show a "nothing new today" placeholder for always-visible sections
+        empty_card = f"""
+    <div style="padding:14px 20px;background:#fff;">
+      <p style="margin:0;font-size:12px;color:#94a3b8;font-style:italic;">
+        ✅ No new {category} items today.
+      </p>
+    </div>"""
+        cards = empty_card
+    else:
+        cards = "".join(render_article_card(row, cfg) for _, row in cat_df.iterrows())
     return f"""
     <div style="margin-bottom:24px;border-radius:6px;overflow:hidden;
                 box-shadow:0 1px 4px rgba(0,0,0,0.08);">
@@ -732,7 +792,7 @@ def build_email(df_new: pd.DataFrame) -> str:
         </div>"""
 
     sections = "".join(
-        render_category_section(df_new, cat, cfg)
+        render_category_section(df_new, cat, cfg, always_show=(cat == "Regulatory"))
         for cat, cfg in CATEGORY_STYLE.items()
     )
     return f"""
