@@ -952,15 +952,21 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
     """
     GeM Bidding Portal parser for bidplus.gem.gov.in/all-bids.
 
-    The main listing page is a React SPA and cannot be scraped with a static
-    GET.  This parser tries three escalating approaches:
+    The page is a React SPA — a static GET returns an empty shell.
+    Playwright renders the JavaScript, then two extraction paths run in order:
 
-    1. GeM advance-search page  — may expose partial SSR content.
-    2. Known GeM Bid REST API patterns  — undocumented but commonly observed
-       in browser network traffic; returns JSON if accessible.
-    3. eprocure / CPPP keyword-search fallback  — the CPPP portal aggregates
-       all central government procurement including GeM bids, so ESG tenders
-       that appear on bidplus.gem.gov.in will also appear here.
+    1. JSON interception  — Playwright captures every XHR/fetch response the
+       React app makes while loading.  If any carry bid data, we use that
+       directly (clean, stable, no HTML parsing needed).
+
+    2. DOM scraping  — if no JSON was captured, we read the fully-rendered
+       HTML via BeautifulSoup and look for bid card/row elements.
+
+    3. eprocure fallback  — if Playwright isn't installed or both paths above
+       yield nothing, fall back to the eprocure keyword-search API (same as
+       before).  Install with:
+           pip install playwright
+           playwright install chromium
     """
     org = source["org"]
     keywords = source["keywords"]
@@ -969,127 +975,181 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
     seen: set[str] = set()
 
     ESG_TERMS = ["ESG", "sustainability", "carbon", "BRSR", "net+zero", "climate", "GHG"]
+    BASE = "https://bidplus.gem.gov.in"
 
-    # ── Attempt 1: advance-search (may have partial SSR table) ───────────────
-    for term in ESG_TERMS:
-        url = (
-            "https://bidplus.gem.gov.in/advance-search"
-            f"?searchedKeyword={requests.utils.quote(term)}"
+    # ── Playwright availability check ─────────────────────────────────────────
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+        PLAYWRIGHT_OK = True
+    except ImportError:
+        PLAYWRIGHT_OK = False
+
+    if not PLAYWRIGHT_OK:
+        print("    ⚠  playwright not installed — falling back to eprocure search")
+        print("       To scrape GeM directly: pip install playwright && playwright install chromium")
+        fallback = _eprocure_keyword_hits(org, keywords, seen, now)
+        if fallback:
+            print(f"    ✓ eprocure fallback: {len(fallback)} active tender(s)")
+        return fallback
+
+    # ── Playwright scrape ─────────────────────────────────────────────────────
+    def _parse_json_item(item: dict) -> dict | None:
+        """Extract a standardised hit dict from a raw JSON bid object."""
+        bid_no   = str(item.get("bidNumber") or item.get("bid_number") or item.get("id") or "")
+        title    = str(item.get("bidTitle") or item.get("title") or item.get("name") or bid_no)
+        closing  = str(item.get("bidSubmissionClosingDate") or item.get("closingDate") or "")
+        org_name = str(item.get("orgName") or item.get("ministry") or org)
+        detail   = f"{BASE}/bidlisting/{bid_no}" if bid_no else f"{BASE}/all-bids"
+
+        if detail in seen or len(title) < 5:
+            return None
+        kw = first_keyword_match(title, keywords)
+        if not kw:
+            return None
+        dl_dt = parse_fuzzy_date(closing)
+        if dl_dt and dl_dt <= now:
+            return None   # already closed
+
+        seen.add(detail)
+        return {
+            "org": f"{org} — {org_name}" if org_name != org else org,
+            "category": "Tenders",
+            "keyword": kw,
+            "title": title[:150],
+            "article_url": detail,
+            "date": f"Deadline: {fmt_date(closing)}" if closing else "",
+            "snippet": clean_snippet(f"Bid: {bid_no} | Closing: {closing} | {title}"),
+            "uid": make_uid(detail, title),
+        }
+
+    def _parse_dom(html: str) -> list[dict]:
+        """DOM fallback: extract from the rendered HTML page."""
+        soup = BeautifulSoup(html, "html.parser")
+        dom_hits = []
+
+        # GeM renders bids as card divs and/or table rows.
+        # Try progressively broader selectors so a redesign degrades gracefully.
+        containers = (
+            soup.select(".bid-card")
+            or soup.select("[class*='bidCard']")
+            or soup.select("[class*='bid-item']")
+            or soup.find_all("tr", class_=lambda c: c and "bid" in c.lower())
+            or soup.find_all(
+                "div",
+                class_=lambda c: c and any(
+                    k in c.lower() for k in ("bid", "tender", "card", "item")
+                ),
+            )
         )
-        soup = fetch_soup(url)
-        if not soup:
-            continue
-        for row in soup.find_all("tr"):
-            row_text = row.get_text(separator=" ", strip=True)
-            if len(row_text) < 10:
-                continue
-            a = row.find("a", href=True)
-            if not a:
-                continue
-            title = a.get_text(strip=True)
-            href = a["href"]
+
+        for container in containers:
+            a = container.find("a", href=True)
+            text = container.get_text(separator=" ", strip=True)
+            title = a.get_text(strip=True) if a else text[:120]
+            href = a["href"] if a else ""
             if not href.startswith("http"):
-                href = urljoin("https://bidplus.gem.gov.in", href)
+                href = urljoin(BASE, href) if href else f"{BASE}/all-bids"
             if href in seen or len(title) < 5:
                 continue
-            kw_match = first_keyword_match(f"{title} {row_text}", keywords)
-            if not kw_match:
+            kw = first_keyword_match(f"{title} {text}", keywords)
+            if not kw:
                 continue
-            deadline_dt, deadline_str = _extract_deadline(row_text, now)
-            if deadline_dt is None:
+            dl_dt, dl_str = _extract_deadline(text, now)
+            if dl_dt is None:
                 continue
             seen.add(href)
-            hits.append({
+            dom_hits.append({
                 "org": org,
                 "category": "Tenders",
-                "keyword": kw_match,
+                "keyword": kw,
                 "title": title[:150],
                 "article_url": href,
-                "date": f"Deadline: {deadline_str}",
-                "snippet": clean_snippet(row_text),
+                "date": f"Deadline: {dl_str}",
+                "snippet": clean_snippet(text),
                 "uid": make_uid(href, title),
             })
+        return dom_hits
 
-    if hits:
-        print(f"    ✓ GeM advance-search: {len(hits)} active tender(s)")
-        return hits
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        ctx = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        )
+        page = ctx.new_page()
 
-    # ── Attempt 2: GeM Bid REST API (JSON) ───────────────────────────────────
-    API_CANDIDATES = [
-        "https://bidplus.gem.gov.in/rest/Bid/getBidSearchList",
-        "https://bidplus.gem.gov.in/rest/Bid/bidListBySearchString",
-    ]
-    for api_url in API_CANDIDATES:
-        for term in ["ESG", "sustainability", "carbon credit", "BRSR", "net zero"]:
+        # Capture every JSON response the SPA makes while loading.
+        # We collect items into a list; the response handler runs synchronously
+        # between Playwright events so no threading issues arise.
+        intercepted: list[dict] = []
+
+        def _on_response(resp):
             try:
-                r = SESSION.get(
-                    api_url,
-                    params={"searchedKeyword": term, "page": 0, "pageSize": 25},
-                    headers={
-                        "Accept": "application/json, */*;q=0.8",
-                        "X-Requested-With": "XMLHttpRequest",
-                        "Referer": "https://bidplus.gem.gov.in/all-bids",
-                    },
-                    timeout=15,
-                )
-                if r.status_code != 200:
-                    continue
-                data = r.json()
-                # Try common response envelope shapes
+                if resp.status != 200:
+                    return
+                if "json" not in resp.headers.get("content-type", ""):
+                    return
+                data = resp.json()
+                # Unwrap common API envelope shapes
                 items = None
-                for key in ("data", "bids", "result", "content", "items", "bidList"):
+                for key in ("data", "bids", "result", "content", "bidList",
+                            "items", "records", "tenderList"):
                     candidate = data.get(key) if isinstance(data, dict) else None
-                    if isinstance(candidate, list):
+                    if isinstance(candidate, list) and candidate:
                         items = candidate
                         break
-                if not items:
-                    continue
-                for item in items:
-                    bid_no   = item.get("bidNumber") or item.get("bid_number") or ""
-                    title    = str(item.get("bidTitle") or item.get("title") or bid_no)
-                    closing  = str(item.get("bidSubmissionClosingDate")
-                                   or item.get("closingDate") or "")
-                    org_name = str(item.get("orgName") or item.get("ministry") or org)
-                    detail_url = (
-                        f"https://bidplus.gem.gov.in/bidlisting/{bid_no}"
-                        if bid_no else "https://bidplus.gem.gov.in/all-bids"
-                    )
-                    if detail_url in seen:
-                        continue
-                    kw_match = first_keyword_match(title, keywords)
-                    if not kw_match:
-                        continue
-                    # Try to get a future deadline from the closing-date field
-                    deadline_dt = parse_fuzzy_date(closing)
-                    if deadline_dt and deadline_dt <= now:
-                        continue   # already closed
-                    deadline_str = fmt_date(closing) if closing else ""
-                    seen.add(detail_url)
-                    hits.append({
-                        "org": f"{org} — {org_name}" if org_name != org else org,
-                        "category": "Tenders",
-                        "keyword": kw_match,
-                        "title": title[:150],
-                        "article_url": detail_url,
-                        "date": f"Deadline: {deadline_str}" if deadline_str else "",
-                        "snippet": clean_snippet(
-                            f"Bid No: {bid_no}  |  Closing: {closing}  |  {title}"
-                        ),
-                        "uid": make_uid(detail_url, title),
-                    })
-                if hits:
-                    print(f"    ✓ GeM JSON API ({api_url.split('/')[-1]}): "
-                          f"{len(hits)} active tender(s)")
-                    return hits
+                if items is None and isinstance(data, list) and data:
+                    items = data
+                if items:
+                    intercepted.extend(items)
             except Exception:
+                pass
+
+        page.on("response", _on_response)
+
+        for term in ESG_TERMS:
+            intercepted.clear()
+            search_url = f"{BASE}/advance-search?searchedKeyword={requests.utils.quote(term)}"
+
+            try:
+                page.goto(search_url, wait_until="networkidle", timeout=30_000)
+            except PWTimeout:
+                print(f"    ⚠  GeM timeout for '{term}', skipping")
+                continue
+            except Exception as e:
+                print(f"    ⚠  GeM error for '{term}': {e}")
                 continue
 
-    # ── Attempt 3: eprocure / CPPP keyword-search (always reliable) ──────────
-    print(f"    ⚠  bidplus.gem.gov.in is JS-rendered; "
-          f"using CPPP/eprocure keyword search (aggregates GeM bids)")
+            # ── Path 1: JSON interception ─────────────────────────────────
+            if intercepted:
+                for item in intercepted:
+                    hit = _parse_json_item(item)
+                    if hit:
+                        hits.append(hit)
+                if hits:
+                    print(f"    ✓ GeM JSON ('{term}'): {len(hits)} so far")
+                    continue   # move to next term; JSON was sufficient
+
+            # ── Path 2: DOM scraping ──────────────────────────────────────
+            dom_hits = _parse_dom(page.content())
+            if dom_hits:
+                hits.extend(dom_hits)
+                print(f"    ✓ GeM DOM ('{term}'): {len(dom_hits)} tender(s)")
+
+        browser.close()
+
+    if hits:
+        print(f"    ✓ Playwright total: {len(hits)} active GeM tender(s)")
+        return hits
+
+    # ── Fallback: eprocure keyword-search ────────────────────────────────────
+    print("    ⚠  Playwright found 0 results — falling back to eprocure search")
     fallback = _eprocure_keyword_hits(org, keywords, seen, now)
     if fallback:
-        print(f"    ✓ eprocure search fallback: {len(fallback)} active tender(s)")
+        print(f"    ✓ eprocure fallback: {len(fallback)} active tender(s)")
     hits.extend(fallback)
     return hits
 
