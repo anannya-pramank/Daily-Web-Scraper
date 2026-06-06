@@ -27,6 +27,10 @@ HISTORY_PATH = "Historical_Matches.csv"
 RECENCY_DAYS = 60
 RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
 
+# Tighter window for ESG news articles in the daily digest
+NEWS_LOOKBACK_DAYS = 2
+NEWS_CUTOFF = datetime.now(timezone.utc) - timedelta(days=NEWS_LOOKBACK_DAYS)
+
 
 def parse_fuzzy_date(text: str):
     """
@@ -534,9 +538,9 @@ def parse_rss(source: dict) -> list[dict]:
             else:
                 entry_org = org
 
-            # Skip items older than RECENCY_DAYS
+            # Skip items older than NEWS_LOOKBACK_DAYS
             dt = parse_fuzzy_date(pub_date)
-            if dt and dt < RECENCY_CUTOFF:
+            if dt and dt < NEWS_CUTOFF:
                 continue
 
             check = f"{title} {summary}"
