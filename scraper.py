@@ -197,73 +197,155 @@ SOURCES = [
         "category": "Tenders",
         "parser": "cppp",
     },
-    # ── ESG News — Google News hybrid (4 broad queries replace 12 individual scrapers) ──
-    # Each entry uses gnews=True so _process_feed pulls the real publisher
-    # from entry.source.title (e.g. "ESG Today", "Reuters") per article.
-    # URL-based uid dedup handles overlap between the 4 queries automatically.
+    # ── ESG News — one entry per tracked source ───────────────────────────────
+    # Primary: each site's own RSS feed.
+    # Fallback (rss_gnews): Google News scoped to that domain only — so only
+    # articles from the tracked site are returned, never third-party outlets.
+    # No gnews=True: org label always comes from the source dict, not article metadata.
     {
-        # Standards & Disclosure: ESG, CSRD, ISSB, BRSR, greenwashing, TCFD
-        "org": "ESG News",   # fallback label; overridden per-article via entry.source.title
-        "url": "https://news.google.com/",
-        "rss": (
+        "org": "ESG Today",
+        "url": "https://www.esgtoday.com/",
+        "rss": "https://www.esgtoday.com/feed/",
+        "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=ESG+OR+CSRD+OR+ISSB+OR+BRSR+OR+greenwashing+OR+TCFD"
-            "+OR+%22sustainability+reporting%22+OR+%22ESG+disclosure%22"
-            "&hl=en-US&gl=US&ceid=US:en"
+            "?q=site:esgtoday.com&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
-        "gnews": True,
     },
     {
-        # Carbon & Climate: credits, net zero, removal, offsets, climate risk/finance
-        "org": "ESG News",
-        "url": "https://news.google.com/",
-        "rss": (
+        "org": "GreenBiz / Trellis",
+        "url": "https://trellis.net/",
+        "rss": "https://trellis.net/feed/",
+        "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=%22carbon+credit%22+OR+%22net+zero%22+OR+%22carbon+removal%22"
-            "+OR+%22climate+risk%22+OR+%22carbon+offset%22+OR+%22carbon+market%22"
-            "+OR+decarbonisation+OR+%22climate+finance%22"
-            "&hl=en-US&gl=US&ceid=US:en"
+            "?q=site:trellis.net&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
-        "gnews": True,
     },
     {
-        # Green Finance & Energy: bonds, renewables, EVs, biodiversity, water
         "org": "ESG News",
-        "url": "https://news.google.com/",
-        "rss": (
+        "url": "https://esgnews.com/",
+        "rss": "https://esgnews.com/feed/",
+        "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=%22green+bond%22+OR+%22sustainable+finance%22"
-            "+OR+%22renewable+energy%22+OR+%22energy+transition%22"
-            "+OR+biodiversity+OR+%22water+stewardship%22"
-            "+OR+%22electric+vehicle%22+OR+%22forest+carbon%22"
-            "&hl=en-US&gl=US&ceid=US:en"
+            "?q=site:esgnews.com&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
-        "gnews": True,
     },
     {
-        # India-focused ESG: SEBI, BRSR, India net-zero, India green bonds (IN locale)
-        "org": "ESG News",
-        "url": "https://news.google.com/",
-        "rss": (
+        "org": "Sustainability Magazine",
+        "url": "https://sustainabilitymag.com/",
+        "rss": "https://sustainabilitymag.com/feed/",
+        "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=India+ESG+OR+India+BRSR+OR+%22India+sustainability%22"
-            "+OR+%22India+net+zero%22+OR+%22India+carbon%22"
-            "+OR+%22SEBI+ESG%22+OR+%22India+green+bond%22"
+            "?q=site:sustainabilitymag.com&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "ESG Dive",
+        "url": "https://www.esgdive.com/",
+        "rss": "https://www.esgdive.com/feeds/news/",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:esgdive.com&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "ESG Clarity",
+        "url": "https://esgclarity.com/",
+        "rss": "https://esgclarity.com/feed/",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:esgclarity.com&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "ESG Investing",
+        "url": "https://www.esginvesting.co.uk/",
+        "rss": "https://www.esginvesting.co.uk/feed/",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:esginvesting.co.uk&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Financial Advisor Magazine",
+        "url": "https://www.fa-mag.com/",
+        "rss": "https://www.fa-mag.com/rss/news.xml",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:fa-mag.com+ESG+OR+sustainability&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Environmental Finance",
+        "url": "https://www.environmental-finance.com/",
+        "rss": "https://www.environmental-finance.com/content/news/rss",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:environmental-finance.com&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "GreenMoney",
+        "url": "https://greenmoney.com/",
+        "rss": "https://greenmoney.com/feed/",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:greenmoney.com&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Mondaq",
+        "url": "https://www.mondaq.com/",
+        "rss": "https://www.mondaq.com/rss/ESGandSustainability",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:mondaq.com+ESG+OR+sustainability+OR+carbon&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "PIB India",
+        "url": "https://www.pib.gov.in/allRel.aspx?reg=1&lang=1",
+        "rss": "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:pib.gov.in+ESG+OR+sustainability+OR+climate+OR+carbon"
             "&hl=en-IN&gl=IN&ceid=IN:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
-        "gnews": True,
     },
     # ── Regulatory ────────────────────────────────────────────────────────────
     {
