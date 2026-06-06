@@ -134,8 +134,18 @@ REALTIME_KEYWORDS = [
 ]
 
 SEBI_KEYWORDS = [
-    "BRSR", "Listing Obligations and Disclosure Requirements", "LODR", "Assurance",
-    "Assessment", "BRSR Core"
+    # ESG-specific SEBI reporting obligations (narrow — avoids false-positive LODR/MPS circulars)
+    "BRSR", "BRSR Core",
+    # Sustainability & ESG terms that appear in SEBI circular titles
+    "Sustainability", "ESG",
+    # Green / sustainable / social finance
+    "Green Bond", "Social Bond", "Sustainability Bond", "Green Finance",
+    # Climate & carbon
+    "Climate", "Carbon", "Net Zero",
+    # Nature & water
+    "Biodiversity", "Water Stewardship",
+    # International frameworks SEBI references
+    "TCFD", "GRI", "ISSB", "IFRS S",
 ]
 
 # Each source: org name, homepage URL, RSS feed URL (or None), keywords, category, parser type
@@ -149,14 +159,7 @@ SOURCES = [
         "category": "Tenders",
         "parser": "gem",
     },
-    {
-        "org": "GeM List of Bids",
-        "url": "https://bidplus.gem.gov.in/all-bids",
-        "rss": None,
-        "keywords": TENDER_KEYWORDS,
-        "category": "Tenders",
-        "parser": "gem",
-    },
+    # Note: bidplus.gem.gov.in/all-bids omitted — JS-rendered SPA, not parseable with static HTML.
     {
         "org": "CPPP Active Tenders – Central",
         "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata",
@@ -635,11 +638,42 @@ def parse_gem(source: dict) -> list[dict]:
     """
     Government e-procurement / GeM tender portal parser.
     Tender data is typically in HTML tables or structured list rows.
+
+    Date logic:
+      CPPP rows contain multiple dates (published, opening, closing, bid-opening).
+      We scan all date-like strings in the row, find all that are in the future,
+      and use the nearest one as the "deadline" to display.
+      Tenders whose deadline has already passed are silently skipped — they are
+      no longer actionable regardless of when they were published.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
     org = source["org"]
     base_url = source["url"]
+
+    # Regex broad enough to catch: 26/01/2026, 26-01-2026, 05-Jun-2026, 25 Jun 2026, etc.
+    ALL_DATE_RE = re.compile(
+        r'\b(\d{1,2}[-/]\w{3}[-/]\d{4}|\d{1,2}[-/]\d{2}[-/]\d{4}|\d{1,2}\s+\w{3,9}\s+\d{4})\b',
+        re.IGNORECASE,
+    )
+    now = datetime.now(timezone.utc)
+
+    def _extract_deadline(row_text: str):
+        """
+        Return (deadline_dt, deadline_str) for the nearest future date found
+        in row_text, or (None, "") if all dates are in the past (tender expired).
+        """
+        candidates = []
+        for m in ALL_DATE_RE.finditer(row_text):
+            raw = m.group(1)
+            dt = parse_fuzzy_date(raw)
+            if dt and dt > now:
+                candidates.append((dt, raw))
+        if not candidates:
+            return None, ""
+        candidates.sort(key=lambda x: x[0])
+        dt, raw = candidates[0]
+        return dt, fmt_date(raw)
 
     soup = fetch_soup(base_url)
     if not soup:
@@ -653,6 +687,11 @@ def parse_gem(source: dict) -> list[dict]:
         if not kw:
             continue
 
+        # Skip tenders with no future deadline (already closed)
+        deadline_dt, deadline_str = _extract_deadline(row_text)
+        if deadline_dt is None:
+            continue
+
         a = row.find("a", href=True)
         href = urljoin(base_url, a["href"]) if a else base_url
         title = a.get_text(strip=True) if a else row_text[:150]
@@ -661,14 +700,13 @@ def parse_gem(source: dict) -> list[dict]:
             continue
         seen.add(href)
 
-        date_match = re.search(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", row_text)
         hits.append({
             "org": org,
             "category": source["category"],
             "keyword": kw,
             "title": title[:150],
             "article_url": href,
-            "date": date_match.group(0) if date_match else "",
+            "date": f"Deadline: {deadline_str}",
             "snippet": clean_snippet(row_text),
             "uid": make_uid(href, title),
         })
