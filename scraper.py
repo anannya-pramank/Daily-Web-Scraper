@@ -157,16 +157,37 @@ SOURCES = [
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
-        "parser": "gem",
+        "parser": "cppp",
     },
-    # Note: bidplus.gem.gov.in/all-bids omitted — JS-rendered SPA, not parseable with static HTML.
+    {
+        # JS-rendered SPA — parse_gem_bidplus tries GeM search APIs then
+        # falls back to eprocure keyword search (CPPP aggregates GeM tenders).
+        "org": "GeM List of Bids",
+        "url": "https://bidplus.gem.gov.in/all-bids",
+        "rss": None,
+        "keywords": TENDER_KEYWORDS,
+        "category": "Tenders",
+        "parser": "gem_bidplus",
+    },
+    {
+        "org": "CPPP Active Tenders",
+        "url": (
+            "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata"
+            "/byYzJWc1pXTjBBMTNoMWMyVnNaV04wQTEzaDFjSFZpYkdsemFIVmtYMlJo"
+            "ZEdVPUExM2gxUWxKVFVnPT0="
+        ),
+        "rss": None,
+        "keywords": TENDER_KEYWORDS,
+        "category": "Tenders",
+        "parser": "cppp",
+    },
     {
         "org": "CPPP Active Tenders – Central",
         "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata",
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
-        "parser": "gem",
+        "parser": "cppp",
     },
     {
         "org": "CPPP Active Tenders – State",
@@ -174,7 +195,7 @@ SOURCES = [
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
-        "parser": "gem",
+        "parser": "cppp",
     },
     # ── ESG News — Google News hybrid (4 broad queries replace 12 individual scrapers) ──
     # Each entry uses gnews=True so _process_feed pulls the real publisher
@@ -634,46 +655,105 @@ def parse_sebi(source: dict) -> list[dict]:
     return hits
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TENDER HELPERS  (module-level so all three tender parsers can share them)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Broad date regex: 26/01/2026  26-01-2026  05-Jun-2026  25 Jun 2026
+_TENDER_DATE_RE = re.compile(
+    r'\b(\d{1,2}[-/]\w{3}[-/]\d{4}|\d{1,2}[-/]\d{2}[-/]\d{4}|\d{1,2}\s+\w{3,9}\s+\d{4})\b',
+    re.IGNORECASE,
+)
+
+
+def _extract_deadline(row_text: str, now: datetime):
+    """
+    Return (deadline_dt, deadline_str) for the nearest future date in row_text,
+    or (None, '') when all dates are in the past (tender already closed).
+    """
+    candidates = []
+    for m in _TENDER_DATE_RE.finditer(row_text):
+        dt = parse_fuzzy_date(m.group(1))
+        if dt and dt > now:
+            candidates.append((dt, m.group(1)))
+    if not candidates:
+        return None, ""
+    candidates.sort(key=lambda x: x[0])
+    dt, raw = candidates[0]
+    return dt, fmt_date(raw)
+
+
+def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -> list[dict]:
+    """
+    Use eprocure.gov.in's classic JSP keyword-search (always server-side rendered,
+    no JavaScript required) to find active ESG tenders.  Results are deduped
+    against the caller-supplied `seen` set (modified in-place).
+    """
+    hits = []
+    SEARCH_URL = (
+        "https://eprocure.gov.in/eprocure/app"
+        "?component=%24SearchString"
+        "&page=FrontEndLatestActiveTenders"
+        "&service=page"
+        "&searchString={kw}"
+        "&Search=Search"
+    )
+    # Core ESG clusters — each term covers a family of related tenders
+    TERMS = [
+        "ESG", "sustainability", "carbon", "BRSR",
+        "net+zero", "climate", "GHG", "renewable",
+    ]
+    for term in TERMS:
+        url = SEARCH_URL.format(kw=requests.utils.quote(term))
+        soup = fetch_soup(url)
+        if not soup:
+            continue
+        for row in soup.find_all("tr"):
+            row_text = row.get_text(separator=" ", strip=True)
+            if len(row_text) < 10:
+                continue
+            a = row.find("a", href=True)
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            href = a["href"]
+            if not href.startswith("http"):
+                href = urljoin("https://eprocure.gov.in", href)
+            if href in seen or len(title) < 5:
+                continue
+            kw_match = first_keyword_match(f"{title} {row_text}", keywords)
+            if not kw_match:
+                continue
+            deadline_dt, deadline_str = _extract_deadline(row_text, now)
+            if deadline_dt is None:
+                continue
+            seen.add(href)
+            hits.append({
+                "org": org,
+                "category": "Tenders",
+                "keyword": kw_match,
+                "title": title[:150],
+                "article_url": href,
+                "date": f"Deadline: {deadline_str}",
+                "snippet": clean_snippet(row_text),
+                "uid": make_uid(href, title),
+            })
+    return hits
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 def parse_gem(source: dict) -> list[dict]:
     """
-    Government e-procurement / GeM tender portal parser.
-    Tender data is typically in HTML tables or structured list rows.
-
-    Date logic:
-      CPPP rows contain multiple dates (published, opening, closing, bid-opening).
-      We scan all date-like strings in the row, find all that are in the future,
-      and use the nearest one as the "deadline" to display.
-      Tenders whose deadline has already passed are silently skipped — they are
-      no longer actionable regardless of when they were published.
+    Legacy GeM / government tender parser — direct HTML table scrape.
+    Kept for any source that still uses parser="gem".  parse_cppp and
+    parse_gem_bidplus call this internally as their first attempt.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
     org = source["org"]
     base_url = source["url"]
-
-    # Regex broad enough to catch: 26/01/2026, 26-01-2026, 05-Jun-2026, 25 Jun 2026, etc.
-    ALL_DATE_RE = re.compile(
-        r'\b(\d{1,2}[-/]\w{3}[-/]\d{4}|\d{1,2}[-/]\d{2}[-/]\d{4}|\d{1,2}\s+\w{3,9}\s+\d{4})\b',
-        re.IGNORECASE,
-    )
     now = datetime.now(timezone.utc)
-
-    def _extract_deadline(row_text: str):
-        """
-        Return (deadline_dt, deadline_str) for the nearest future date found
-        in row_text, or (None, "") if all dates are in the past (tender expired).
-        """
-        candidates = []
-        for m in ALL_DATE_RE.finditer(row_text):
-            raw = m.group(1)
-            dt = parse_fuzzy_date(raw)
-            if dt and dt > now:
-                candidates.append((dt, raw))
-        if not candidates:
-            return None, ""
-        candidates.sort(key=lambda x: x[0])
-        dt, raw = candidates[0]
-        return dt, fmt_date(raw)
 
     soup = fetch_soup(base_url)
     if not soup:
@@ -686,20 +766,15 @@ def parse_gem(source: dict) -> list[dict]:
         kw = first_keyword_match(row_text, keywords)
         if not kw:
             continue
-
-        # Skip tenders with no future deadline (already closed)
-        deadline_dt, deadline_str = _extract_deadline(row_text)
+        deadline_dt, deadline_str = _extract_deadline(row_text, now)
         if deadline_dt is None:
             continue
-
         a = row.find("a", href=True)
         href = urljoin(base_url, a["href"]) if a else base_url
         title = a.get_text(strip=True) if a else row_text[:150]
-
         if href in seen:
             continue
         seen.add(href)
-
         hits.append({
             "org": org,
             "category": source["category"],
@@ -710,7 +785,220 @@ def parse_gem(source: dict) -> list[dict]:
             "snippet": clean_snippet(row_text),
             "uid": make_uid(href, title),
         })
+    return hits
 
+
+def parse_cppp(source: dict) -> list[dict]:
+    """
+    CPPP / eprocure tender parser covering all five tracking-list portals:
+      • gem.gov.in/cppp
+      • eprocure.gov.in/cppp/latestactivetendersnew/cpppdata  (Central)
+      • eprocure.gov.in/cppp/latestactivetendersnew/mmpdata   (State)
+      • eprocure.gov.in/cppp/latestactivetendersnew/cpppdata/<base64>
+
+    Strategy
+    --------
+    1. Direct HTML GET of the source URL (works if the page uses SSR/JSP).
+    2. If the direct GET yields 0 keyword-matching rows (page is likely
+       AJAX-rendered or returns a near-empty skeleton), fall back to the
+       eprocure classic keyword-search API — JSP-rendered, always scrapable.
+    3. The eprocure search is queried for each ESG term cluster, collecting
+       all active tenders (deadline in future) that match TENDER_KEYWORDS.
+    """
+    org = source["org"]
+    keywords = source["keywords"]
+    base_url = source["url"]
+    now = datetime.now(timezone.utc)
+    hits: list[dict] = []
+    seen: set[str] = set()
+
+    # ── Step 1: direct HTML scrape ────────────────────────────────────────────
+    soup = fetch_soup(base_url)
+    if soup:
+        for row in soup.find_all("tr"):
+            row_text = row.get_text(separator=" ", strip=True)
+            if len(row_text) < 10:
+                continue
+            kw_match = first_keyword_match(row_text, keywords)
+            if not kw_match:
+                continue
+            deadline_dt, deadline_str = _extract_deadline(row_text, now)
+            if deadline_dt is None:
+                continue
+            a = row.find("a", href=True)
+            href = urljoin(base_url, a["href"]) if a else base_url
+            title = a.get_text(strip=True) if a else row_text[:150]
+            if href in seen:
+                continue
+            seen.add(href)
+            hits.append({
+                "org": org,
+                "category": "Tenders",
+                "keyword": kw_match,
+                "title": title[:150],
+                "article_url": href,
+                "date": f"Deadline: {deadline_str}",
+                "snippet": clean_snippet(row_text),
+                "uid": make_uid(href, title),
+            })
+
+    if hits:
+        print(f"    ✓ direct HTML: {len(hits)} active tender(s)")
+        return hits
+
+    # ── Step 2: eprocure classic keyword-search fallback ──────────────────────
+    print(f"    ⚠  direct HTML returned 0 rows (likely AJAX-rendered) — "
+          f"falling back to eprocure keyword search")
+    fallback = _eprocure_keyword_hits(org, keywords, seen, now)
+    if fallback:
+        print(f"    ✓ eprocure search: {len(fallback)} active tender(s)")
+    hits.extend(fallback)
+    return hits
+
+
+def parse_gem_bidplus(source: dict) -> list[dict]:
+    """
+    GeM Bidding Portal parser for bidplus.gem.gov.in/all-bids.
+
+    The main listing page is a React SPA and cannot be scraped with a static
+    GET.  This parser tries three escalating approaches:
+
+    1. GeM advance-search page  — may expose partial SSR content.
+    2. Known GeM Bid REST API patterns  — undocumented but commonly observed
+       in browser network traffic; returns JSON if accessible.
+    3. eprocure / CPPP keyword-search fallback  — the CPPP portal aggregates
+       all central government procurement including GeM bids, so ESG tenders
+       that appear on bidplus.gem.gov.in will also appear here.
+    """
+    org = source["org"]
+    keywords = source["keywords"]
+    now = datetime.now(timezone.utc)
+    hits: list[dict] = []
+    seen: set[str] = set()
+
+    ESG_TERMS = ["ESG", "sustainability", "carbon", "BRSR", "net+zero", "climate", "GHG"]
+
+    # ── Attempt 1: advance-search (may have partial SSR table) ───────────────
+    for term in ESG_TERMS:
+        url = (
+            "https://bidplus.gem.gov.in/advance-search"
+            f"?searchedKeyword={requests.utils.quote(term)}"
+        )
+        soup = fetch_soup(url)
+        if not soup:
+            continue
+        for row in soup.find_all("tr"):
+            row_text = row.get_text(separator=" ", strip=True)
+            if len(row_text) < 10:
+                continue
+            a = row.find("a", href=True)
+            if not a:
+                continue
+            title = a.get_text(strip=True)
+            href = a["href"]
+            if not href.startswith("http"):
+                href = urljoin("https://bidplus.gem.gov.in", href)
+            if href in seen or len(title) < 5:
+                continue
+            kw_match = first_keyword_match(f"{title} {row_text}", keywords)
+            if not kw_match:
+                continue
+            deadline_dt, deadline_str = _extract_deadline(row_text, now)
+            if deadline_dt is None:
+                continue
+            seen.add(href)
+            hits.append({
+                "org": org,
+                "category": "Tenders",
+                "keyword": kw_match,
+                "title": title[:150],
+                "article_url": href,
+                "date": f"Deadline: {deadline_str}",
+                "snippet": clean_snippet(row_text),
+                "uid": make_uid(href, title),
+            })
+
+    if hits:
+        print(f"    ✓ GeM advance-search: {len(hits)} active tender(s)")
+        return hits
+
+    # ── Attempt 2: GeM Bid REST API (JSON) ───────────────────────────────────
+    API_CANDIDATES = [
+        "https://bidplus.gem.gov.in/rest/Bid/getBidSearchList",
+        "https://bidplus.gem.gov.in/rest/Bid/bidListBySearchString",
+    ]
+    for api_url in API_CANDIDATES:
+        for term in ["ESG", "sustainability", "carbon credit", "BRSR", "net zero"]:
+            try:
+                r = SESSION.get(
+                    api_url,
+                    params={"searchedKeyword": term, "page": 0, "pageSize": 25},
+                    headers={
+                        "Accept": "application/json, */*;q=0.8",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": "https://bidplus.gem.gov.in/all-bids",
+                    },
+                    timeout=15,
+                )
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+                # Try common response envelope shapes
+                items = None
+                for key in ("data", "bids", "result", "content", "items", "bidList"):
+                    candidate = data.get(key) if isinstance(data, dict) else None
+                    if isinstance(candidate, list):
+                        items = candidate
+                        break
+                if not items:
+                    continue
+                for item in items:
+                    bid_no   = item.get("bidNumber") or item.get("bid_number") or ""
+                    title    = str(item.get("bidTitle") or item.get("title") or bid_no)
+                    closing  = str(item.get("bidSubmissionClosingDate")
+                                   or item.get("closingDate") or "")
+                    org_name = str(item.get("orgName") or item.get("ministry") or org)
+                    detail_url = (
+                        f"https://bidplus.gem.gov.in/bidlisting/{bid_no}"
+                        if bid_no else "https://bidplus.gem.gov.in/all-bids"
+                    )
+                    if detail_url in seen:
+                        continue
+                    kw_match = first_keyword_match(title, keywords)
+                    if not kw_match:
+                        continue
+                    # Try to get a future deadline from the closing-date field
+                    deadline_dt = parse_fuzzy_date(closing)
+                    if deadline_dt and deadline_dt <= now:
+                        continue   # already closed
+                    deadline_str = fmt_date(closing) if closing else ""
+                    seen.add(detail_url)
+                    hits.append({
+                        "org": f"{org} — {org_name}" if org_name != org else org,
+                        "category": "Tenders",
+                        "keyword": kw_match,
+                        "title": title[:150],
+                        "article_url": detail_url,
+                        "date": f"Deadline: {deadline_str}" if deadline_str else "",
+                        "snippet": clean_snippet(
+                            f"Bid No: {bid_no}  |  Closing: {closing}  |  {title}"
+                        ),
+                        "uid": make_uid(detail_url, title),
+                    })
+                if hits:
+                    print(f"    ✓ GeM JSON API ({api_url.split('/')[-1]}): "
+                          f"{len(hits)} active tender(s)")
+                    return hits
+            except Exception:
+                continue
+
+    # ── Attempt 3: eprocure / CPPP keyword-search (always reliable) ──────────
+    print(f"    ⚠  bidplus.gem.gov.in is JS-rendered; "
+          f"using CPPP/eprocure keyword search (aggregates GeM bids)")
+    fallback = _eprocure_keyword_hits(org, keywords, seen, now)
+    if fallback:
+        print(f"    ✓ eprocure search fallback: {len(fallback)} active tender(s)")
+    hits.extend(fallback)
     return hits
 
 
@@ -718,6 +1006,8 @@ PARSER_MAP = {
     "rss_news": parse_rss,
     "sebi": parse_sebi,
     "gem": parse_gem,
+    "cppp": parse_cppp,
+    "gem_bidplus": parse_gem_bidplus,
 }
 
 # ==========================================
