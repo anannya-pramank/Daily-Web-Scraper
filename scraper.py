@@ -23,13 +23,9 @@ POWER_AUTOMATE_URL = "https://defaultfd7143fa1107460d98b18ef251b16d.50.environme
 TODAY_STR = datetime.now().strftime("%d %B %Y")
 HISTORY_PATH = "Historical_Matches.csv"
 
-# Items older than this many days are ignored for news/tender sources
+# Items older than this many days are ignored (prevents stale SEBI dumps on first run)
 RECENCY_DAYS = 60
 RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
-
-# Wider recency window for regulatory sources.
-REGULATORY_RECENCY_DAYS = 90
-REGULATORY_RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=REGULATORY_RECENCY_DAYS)
 
 
 def parse_fuzzy_date(text: str):
@@ -42,11 +38,15 @@ def parse_fuzzy_date(text: str):
     if not text:
         return None
     text = text.strip()
+    # RFC-2822 (RSS feeds: "Thu, 04 Jun 2026 00:00:00 +0000")
     try:
         return parsedate_to_datetime(text)
     except Exception:
         pass
+    # Extract the first date-like token from a longer string (e.g. SEBI row text)
+    # Try common date-only formats directly against full string — no slicing
     candidates = [text]
+    # Also try pulling out just the first 12–16 chars in case of trailing garbage
     if len(text) > 16:
         candidates.append(text[:16].strip())
         candidates.append(text[:12].strip())
@@ -77,33 +77,27 @@ def fmt_date(raw: str) -> str:
         return dt.strftime("%d %b %Y")
     return raw
 
-
 TENDER_KEYWORDS = [
     "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint", "Carbon Neutral",
     "Net Zero", "Carbon Sequestration", "Scope 1", "Scope 2", "Scope 3", "GHG",
     "Green House Gas", "Green House Gases", "ESG", "ESG Disclosure", "Climate Change",
     "Green Finance", "Sustainable Finance", "BRSR", "Assurance", "Assessment",
-    "Sustainability", "Sustainable",
-    "Carbon Market",
-    "CCTS",
-    "Carbon",  # FIX: Added standalone keyword from the Tracking_List.docx blueprint
+    "Sustainab", "Sustainability", "Carbon Market"
 ]
 
 REALTIME_KEYWORDS = [
-    # ── Carbon & Emissions ──────────────────────────────────────────────────
+    # ── Carbon & Emissions (specific first) ──────────────────────────────────
     "Carbon Border Adjustment", "Voluntary Carbon Market", "Joint Crediting Mechanism",
     "Carbon Sequestration", "Carbon Offsetting", "Emissions Reduction", "Carbon Removal",
     "Carbon Footprint", "Carbon Credits", "Carbon Trading", "Carbon Neutral", "Carbon Offset",
     "Carbon Credit", "Carbon Market", "Carbon Border", "Carbon Leakage", "Carbon Emissions",
     "Carbon Price", "Carbon Tax", "Net Emissions", "Carbon Standard", "Carbon Registry",
-    "Global Carbon Market", "International Carbon Trading", "BRICS Carbon",
-    "Multilateral Carbon", "Global Net Zero", "Net Zero",
-    # ── Climate ─────────────────────────────────────────────────────────────
+    "Net Zero",
+    # ── Climate (specific first) ─────────────────────────────────────────────
     "Clean Energy Transition", "Global Plastics Treaty", "Decarbonisation",
     "Climate Finance", "Climate Policy", "Climate Action", "Climate Change",
     "Climate Risk", "Climate Tech", "Paris Agreement", "Global Warming",
-    "Climate Conference", "Climate Fintech",
-    # ── Reporting Standards & Frameworks ─────────────────────────────────────
+    # ── Reporting Standards ───────────────────────────────────────────────────
     "Listing Obligations and Disclosure Requirements",
     "Extended Producer Responsibility", "Biodiversity Net Gain",
     "Nature Based Solutions", "Ecosystem Services", "Integrated Reporting",
@@ -112,40 +106,30 @@ REALTIME_KEYWORDS = [
     "Green Finance Summit", "Biodiversity Credits", "ESG Disclosure",
     "ESG Reporting", "ESG Investing", "ESG Framework", "ESG Portfolio",
     "ESG Conference", "ESG Rating", "ESG Score", "ESG Fund",
-    "ESG KPI", "ESG Maturity", "ESG Benchmark", "ESG Tech", "ESG SaaS",
-    "Materiality Matrix", "BRSR Core", "IFRS S1", "IFRS S2", "Article 6.2", "Article 6",
-    "CSRD", "ISSB", "LODR", "TCFD", "BRSR", "SASB", "TNFD", "SBTN", "GRI", "GHG", "COP",
+    "BRSR Core", "IFRS S1", "IFRS S2", "Article 6.2", "Article 6",
+    "CSRD", "ISSB", "LODR", "TCFD", "BRSR", "SASB", "TNFD", "SBTN",
+    "GRI", "GHG", "COP",
     # ── Finance & Investment ─────────────────────────────────────────────────
     "India Sustainability", "Transition Finance", "Blended Finance",
     "Impact Investing", "Green Investment", "India Net Zero", "India ESG",
-    "India Renewable", "Sustainable Investment India",
     "Carbon Summit", "Green Bond", "Taxonomy", "Greenwashing",
     "Compliance Carbon", "Gold Standard", "Verra",
-    "Carbon Forum", "ESG India", "Sustainability Event", "ESG Seminar",
-    "Green Fintech", "Nature Finance", "Impact Fund", "Climate Fund",
-    "Climate VC", "Green PE", "CO2 Investor",
     # ── Energy ───────────────────────────────────────────────────────────────
     "Waste to Energy", "Energy Transition", "Renewable Energy", "Green Hydrogen",
-    "Wind Energy", "Battery Storage", "Electric Vehicle", "Clean Tech", "Ammonia", "EV",
+    "Wind Energy", "Battery Storage", "Electric Vehicle", "Clean Tech",
     # ── Nature & Water ───────────────────────────────────────────────────────
     "Water Stewardship", "Water Security", "Water Footprint", "Water Stress",
     "Water Risk", "Blue Carbon", "Ocean Carbon", "Forest Carbon",
-    "Groundwater", "Water Recycling", "Water Credits", "Watershed",
-    "Water Disclosure", "CDP Water", "Kunming Montreal", "Deforestation",
-    "Nature Loss", "Biodiversity", "Wildlife", "Wetlands", "EUDR",
+    "Kunming Montreal", "Deforestation", "Nature Loss", "Biodiversity",
+    "EUDR",
     # ── Circular / Trade ─────────────────────────────────────────────────────
-    "Circular Economy", "Plastic Pollution", "Plastic Credit", "Plastic Waste",
-    "Single Use Plastic", "EU Green Deal", "EU Carbon Tax", "EU ETS", "CBAM",
-    "CBAM Reporting", "CBAM Certificate", "CBAM Implementation", "CBAM Transition",
-    # ── Biomass ──────────────────────────────────────────────────────────────
-    "BECCS", "Biochar", "Bioenergy", "Biofuel", "Biomass Energy", "Biomass Power",
-    "Biomass Carbon", "Bio-CCS", "Biomass Co-firing", "Agricultural Residue",
-    "Biomass Gasification", "Biomass Pellets", "Forest Biomass",
-    "Biomass Sustainability Criteria", "RED III", "Biomass Carbon Neutrality", "Biomass",
+    "Circular Economy", "Plastic Pollution", "Plastic Credit",
+    "Carbon Border", "EU Green Deal", "EU Carbon Tax", "EU ETS", "CBAM",
     # ── Other specific ───────────────────────────────────────────────────────
-    "Methane", "Scope 1", "Scope 2", "Scope 3", "Assurance", "Assessment", "JCM", "EPR",
-    "Japan Carbon", "Bilateral Carbon", "Global Sustainability", "G20 Climate",
-    # ── Broad catch-alls ─────────────────────────────────────────────────────
+    "Bioenergy", "Biochar", "Biomass", "BECCS", "Methane", "Scope 1", "Scope 2", "Scope 3",
+    "Assurance", "Assessment",
+    "JCM", "EPR",
+    # ── Broad catch-alls (intentionally last) ───────────────────────────────
     "Sustainability", "Green Finance", "ESG", "Emissions", "Solar",
 ]
 
@@ -154,6 +138,7 @@ SEBI_KEYWORDS = [
     "Assessment", "BRSR Core"
 ]
 
+# Each source: org name, homepage URL, RSS feed URL (or None), keywords, category, parser type
 SOURCES = [
     # ── Tenders ──────────────────────────────────────────────────────────────
     {
@@ -167,14 +152,6 @@ SOURCES = [
     {
         "org": "GeM List of Bids",
         "url": "https://bidplus.gem.gov.in/all-bids",
-        "rss": None,
-        "keywords": TENDER_KEYWORDS,
-        "category": "Tenders",
-        "parser": "gem",
-    },
-    {
-        "org": "CPPP Active Tenders – Filtered",
-        "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata/byYzJWc1pXTjBBMTNoMWMyVnNaV04wQTEzaDFjSFZpYkdsemFIVmtYMlJoZEdVPUExM2gxUWxKVFVnPT0=",
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
@@ -209,6 +186,7 @@ SOURCES = [
         "org": "Trellis / GreenBiz",
         "url": "https://trellis.net/",
         "rss": "https://trellis.net/rss/everything",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:trellis.net+ESG+sustainability&hl=en-US&gl=US&ceid=US:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
@@ -225,6 +203,7 @@ SOURCES = [
         "org": "Sustainability Magazine",
         "url": "https://sustainabilitymag.com/",
         "rss": "https://sustainabilitymag.com/feed/",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:sustainabilitymag.com+sustainability+ESG&hl=en-US&gl=US&ceid=US:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
@@ -233,6 +212,7 @@ SOURCES = [
         "org": "ESG Dive",
         "url": "https://www.esgdive.com/",
         "rss": "https://www.esgdive.com/feeds/news/",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:esgdive.com+ESG+sustainability&hl=en-US&gl=US&ceid=US:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
@@ -241,6 +221,7 @@ SOURCES = [
         "org": "ESG Clarity",
         "url": "https://esgclarity.com/",
         "rss": "https://esgclarity.com/feed/",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:esgclarity.com+ESG&hl=en-US&gl=US&ceid=US:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
@@ -249,6 +230,7 @@ SOURCES = [
         "org": "ESG Investing",
         "url": "https://www.esginvesting.co.uk/",
         "rss": "https://www.esginvesting.co.uk/feed/",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:esginvesting.co.uk+ESG&hl=en-US&gl=US&ceid=US:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
@@ -257,6 +239,7 @@ SOURCES = [
         "org": "Financial Advisor Magazine",
         "url": "https://www.fa-mag.com/",
         "rss": "https://www.fa-mag.com/rss.xml",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:fa-mag.com+ESG+sustainable+climate&hl=en-US&gl=US&ceid=US:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
@@ -265,6 +248,7 @@ SOURCES = [
         "org": "Environmental Finance",
         "url": "https://www.environmental-finance.com/",
         "rss": "https://www.environmental-finance.com/rss.xml",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:environmental-finance.com+carbon+ESG+sustainability&hl=en-US&gl=US&ceid=US:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
@@ -289,9 +273,10 @@ SOURCES = [
         "org": "Govt of India (PIB)",
         "url": "https://www.pib.gov.in/allRel.aspx?reg=1&lang=1",
         "rss": "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3",
+        "rss_gnews": "https://news.google.com/rss/search?q=site:pib.gov.in+sustainability+ESG+carbon+net+zero&hl=en-IN&gl=IN&ceid=IN:en",
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "pib",
+        "parser": "rss_news",
     },
     # ── Regulatory ────────────────────────────────────────────────────────────
     {
@@ -345,6 +330,7 @@ SESSION.headers.update({
     "Connection": "keep-alive",
 })
 
+# Warm SEBI session once at startup
 try:
     SESSION.get("https://www.sebi.gov.in/", timeout=15)
 except Exception:
@@ -359,24 +345,22 @@ def make_uid(url: str, title: str = "") -> str:
     content = url.strip() if url and url.startswith("http") else title.strip()
     return hashlib.md5(content.encode("utf-8")).hexdigest()[:14]
 
-
 def first_keyword_match(text: str, keywords: list) -> str | None:
     """
     Return the most specific (longest) keyword whose whole-word form appears in text.
-    FIX: Allows for plural forms ('s') to catch terms like GHGs, EVs, or standards.
+    Sorting by length descending ensures 'ESG Disclosure' wins over 'ESG',
+    'BRSR Core' wins over 'BRSR', 'Carbon Border Adjustment' wins over 'Carbon Border', etc.
     """
     text_lower = text.lower()
     for kw in sorted(keywords, key=len, reverse=True):
-        pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}s?(?![a-zA-Z0-9])"
+        pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}(?![a-zA-Z0-9])"
         if re.search(pattern, text_lower):
             return kw
     return None
 
-
 def clean_snippet(text: str, max_len: int = 260) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len] + "…" if len(text) > max_len else text
-
 
 def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | None:
     """GET a page and return its parsed soup, or None on failure."""
@@ -394,7 +378,16 @@ def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | N
 
 
 def fetch_rss(rss_url: str):
-    """Fetch an RSS feed using custom session configurations."""
+    """
+    Fetch an RSS/Atom feed robustly:
+    1. Try SESSION (browser UA, avoids 403s from feedparser's default UA).
+       Pass raw bytes to feedparser so it can detect encoding from the XML
+       declaration — r.text decoded by requests can corrupt multi-byte chars
+       when the Content-Type charset is wrong or absent.
+    2. If SESSION fetch fails (non-200 / network error), fall back to letting
+       feedparser make its own request (handles redirects, etags, etc).
+    Returns a feedparser FeedParserDict or None on total failure.
+    """
     if not FEEDPARSER_AVAILABLE:
         return None
     try:
@@ -403,11 +396,22 @@ def fetch_rss(rss_url: str):
             headers={"Accept": "application/rss+xml,application/xml,text/xml,*/*;q=0.8"},
             timeout=20,
         )
-        if r.status_code == 200 and len(r.text) > 100:
-            return feedparser.parse(r.text)
+        if r.status_code == 200 and len(r.content) > 100:
+            feed = feedparser.parse(r.content)   # ← bytes, not r.text
+            if feed.entries:
+                return feed
+            # Feed parsed but empty — still a "success" fetch, return it
+            return feed
         print(f"    ⚠  RSS HTTP {r.status_code} from {rss_url}")
     except Exception as e:
         print(f"    ✗  RSS fetch error for {rss_url}: {e}")
+    # Last resort: feedparser's own transport (handles some edge cases SESSION misses)
+    try:
+        feed = feedparser.parse(rss_url)
+        if not getattr(feed, "bozo", False) or feed.entries:
+            return feed
+    except Exception:
+        pass
     return None
 
 # ==========================================
@@ -415,48 +419,85 @@ def fetch_rss(rss_url: str):
 # ==========================================
 
 def parse_rss(source: dict) -> list[dict]:
-    """Primary parser for news blogs; attempts RSS first, falls back to HTML parsing."""
+    """
+    Primary parser for all news/blog sites.
+    Strategy:
+      1. Try primary RSS feed (direct site feed, browser UA).
+      2. If primary returns 0 entries, try rss_gnews (Google News RSS for the domain).
+      3. If both RSS paths fail, fall back to HTML scraping.
+    """
     hits, seen = [], set()
     keywords = source["keywords"]
     org = source["org"]
     base_url = source["url"]
 
+    def _process_feed(feed) -> list[dict]:
+        """Extract keyword-matching hits from a feedparser feed object."""
+        result = []
+        for entry in feed.entries:
+            title = entry.get("title", "").strip()
+            link = entry.get("link", "").strip()
+            summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
+            pub_date = entry.get("published", entry.get("updated", ""))
+
+            # Skip items older than RECENCY_DAYS
+            dt = parse_fuzzy_date(pub_date)
+            if dt and dt < RECENCY_CUTOFF:
+                continue
+
+            check = f"{title} {summary}"
+            kw = first_keyword_match(check, keywords)
+            if kw and link not in seen:
+                seen.add(link)
+                result.append({
+                    "org": org,
+                    "category": source["category"],
+                    "keyword": kw,
+                    "title": title,
+                    "article_url": link,
+                    "date": fmt_date(pub_date),
+                    "snippet": clean_snippet(summary),
+                    "uid": make_uid(link, title),
+                })
+        return result
+
+    # ─ Primary RSS ────────────────────────────────────────────────────────────
     rss_url = source.get("rss")
     if rss_url:
         feed = fetch_rss(rss_url)
         if feed and feed.entries:
-            for entry in feed.entries:
-                title = entry.get("title", "").strip()
-                link = entry.get("link", "").strip()
-                summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
-                pub_date = entry.get("published", entry.get("updated", ""))
-
-                dt = parse_fuzzy_date(pub_date)
-                if dt and dt < RECENCY_CUTOFF:
-                    continue
-
-                check = f"{title} {summary}"
-                kw = first_keyword_match(check, keywords)
-                if kw and link not in seen:
-                    seen.add(link)
-                    hits.append({
-                        "org": org,
-                        "category": source["category"],
-                        "keyword": kw,
-                        "title": title,
-                        "article_url": link,
-                        "date": fmt_date(pub_date),
-                        "snippet": clean_snippet(summary),
-                        "uid": make_uid(link, title),
-                    })
+            hits = _process_feed(feed)
+            print(f"    ✓ primary RSS: {len(feed.entries)} entries → {len(hits)} match(es)")
             if hits:
                 return hits
+        else:
+            status = f"HTTP error or 0 entries"
+            print(f"    ⚠  primary RSS failed ({status}), trying fallback…")
 
+    # ─ Google News RSS fallback ───────────────────────────────────────────────
+    rss_gnews = source.get("rss_gnews")
+    if rss_gnews and not hits:
+        feed = fetch_rss(rss_gnews)
+        if feed and feed.entries:
+            hits = _process_feed(feed)
+            print(f"    ✓ Google News RSS: {len(feed.entries)} entries → {len(hits)} match(es)")
+            if hits:
+                return hits
+        else:
+            print(f"    ⚠  Google News RSS also failed or empty")
+
+    if hits:
+        return hits
+
+    # ─ HTML fallback ───────────────────────────────────────────────────────
     soup = fetch_soup(base_url)
     if not soup:
         return []
 
+    # Strategy A: <article> containers
     containers = soup.find_all("article") or []
+
+    # Strategy B: divs/sections with post/card/article in class
     if not containers:
         containers = soup.select(
             'div[class*="post"], div[class*="card"], div[class*="article"], '
@@ -464,6 +505,7 @@ def parse_rss(source: dict) -> list[dict]:
             'div[class*="news"], section[class*="article"]'
         )
 
+    # Strategy C: all h2/h3 heading links (broadest catch-all)
     heading_links = []
     for h in soup.find_all(["h2", "h3"]):
         a = h.find("a", href=True)
@@ -485,7 +527,8 @@ def parse_rss(source: dict) -> list[dict]:
         kw = first_keyword_match(f"{title} {body_text}", keywords)
         if kw:
             seen.add(href)
-            date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) or container.find("time")
+            date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) \
+                      or container.find("time")
             raw_date = date_el.get_text(strip=True) if date_el else ""
             hits.append({
                 "org": org,
@@ -510,7 +553,8 @@ def parse_rss(source: dict) -> list[dict]:
         kw = first_keyword_match(f"{title} {body_text}", keywords)
         if kw:
             seen.add(href)
-            date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) or context.find("time")) if context else None
+            date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)})
+                       or context.find("time")) if context else None
             raw_date = date_el.get_text(strip=True) if date_el else ""
             hits.append({
                 "org": org,
@@ -529,115 +573,16 @@ def parse_rss(source: dict) -> list[dict]:
 def parse_sebi(source: dict) -> list[dict]:
     """
     SEBI government portal parser.
-    FIX: Implemented up to 3 deep pagination sweeps to uncover older 90-day 
-    regulatory circulars pushed back by higher volume unrelated updates.
+    Pages are JSP-rendered server-side; content is in <table> rows.
+    Requires a warmed session (homepage cookie) to avoid 403.
+    Only returns items published within RECENCY_DAYS to avoid stale dumps.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
     org = source["org"]
     base_url = source["url"]
 
-    DATE_RE = re.compile(
-        r"(\d{1,2}[-/]\w{3}[-/]\d{4}|\w{3,9}\s+\d{1,2},?\s+\d{4}"
-        r"|\d{2}[-/]\d{2}[-/]\d{4}|\d{1,2}\s+\w{3,9}\s+\d{4})",
-        re.IGNORECASE,
-    )
-
-    def _process(title, href, row_text, date_str):
-        nonlocal hits, seen
-        if href in seen or len(title) < 5:
-            return
-        dt = parse_fuzzy_date(date_str)
-        if dt and dt < REGULATORY_RECENCY_CUTOFF:
-            return
-        kw = first_keyword_match(title, keywords) or first_keyword_match(row_text, keywords)
-        if not kw:
-            return
-        seen.add(href)
-        hits.append({
-            "org": org,
-            "category": source["category"],
-            "keyword": kw,
-            "title": title,
-            "article_url": href,
-            "date": fmt_date(date_str) if date_str else "",
-            "snippet": clean_snippet(row_text),
-            "uid": make_uid(href, title),
-        })
-
-    # Loop through page index boundaries 1 to 3
-    for page_num in range(1, 4):
-        paged_url = f"{base_url}&pageNo={page_num}" if "?" in base_url else f"{base_url}?pageNo={page_num}"
-        soup = fetch_soup(paged_url, extra_headers={"Referer": "https://www.sebi.gov.in/"})
-        if not soup:
-            continue
-
-        for row in soup.find_all("tr"):
-            a = row.find("a", href=True)
-            if not a:
-                continue
-            title = a.get_text(strip=True)
-            href = a["href"]
-            if not href.startswith("http"):
-                href = urljoin("https://www.sebi.gov.in", href)
-            row_text = row.get_text(separator=" ", strip=True)
-            date_match = DATE_RE.search(row_text)
-            _process(title, href, row_text, date_match.group(1) if date_match else "")
-
-        for li in soup.find_all("li"):
-            a = li.find("a", href=True)
-            if not a:
-                continue
-            title = a.get_text(strip=True)
-            href = a["href"]
-            if not href.startswith("http"):
-                href = urljoin("https://www.sebi.gov.in", href)
-            li_text = li.get_text(separator=" ", strip=True)
-            date_match = DATE_RE.search(li_text)
-            _process(title, href, li_text, date_match.group(1) if date_match else "")
-
-    return hits
-
-
-def parse_pib(source: dict) -> list[dict]:
-    """Press Information Bureau layout engine parsing logic."""
-    hits, seen = [], set()
-    keywords = source["keywords"]
-    org = source["org"]
-    base_url = source["url"]
-
-    rss_url = source.get("rss")
-    if rss_url:
-        feed = fetch_rss(rss_url)
-        if feed and feed.entries:
-            for entry in feed.entries:
-                title = entry.get("title", "").strip()
-                link = entry.get("link", "").strip()
-                summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
-                pub_date = entry.get("published", entry.get("updated", ""))
-
-                dt = parse_fuzzy_date(pub_date)
-                if dt and dt < RECENCY_CUTOFF:
-                    continue
-
-                check = f"{title} {summary}"
-                kw = first_keyword_match(check, keywords)
-                if kw and link not in seen:
-                    seen.add(link)
-                    hits.append({
-                        "org": org,
-                        "category": source["category"],
-                        "keyword": kw,
-                        "title": title,
-                        "article_url": link,
-                        "date": fmt_date(pub_date),
-                        "snippet": clean_snippet(summary),
-                        "uid": make_uid(link, title),
-                    })
-            if hits:
-                return hits
-
-    soup = fetch_soup(base_url)
+    soup = fetch_soup(base_url, extra_headers={"Referer": "https://www.sebi.gov.in/"})
     if not soup:
         return []
 
@@ -648,9 +593,11 @@ def parse_pib(source: dict) -> list[dict]:
     )
 
     def _process(title, href, row_text, date_str):
+        """Shared logic: dedup, recency check, keyword match, append."""
         nonlocal hits, seen
         if href in seen or len(title) < 5:
             return
+        # Recency gate — skip if date is parseable but older than cutoff
         dt = parse_fuzzy_date(date_str)
         if dt and dt < RECENCY_CUTOFF:
             return
@@ -676,11 +623,12 @@ def parse_pib(source: dict) -> list[dict]:
         title = a.get_text(strip=True)
         href = a["href"]
         if not href.startswith("http"):
-            href = urljoin("https://www.pib.gov.in", href)
+            href = urljoin("https://www.sebi.gov.in", href)
         row_text = row.get_text(separator=" ", strip=True)
         date_match = DATE_RE.search(row_text)
         _process(title, href, row_text, date_match.group(1) if date_match else "")
 
+    # Also catch list-item format pages
     for li in soup.find_all("li"):
         a = li.find("a", href=True)
         if not a:
@@ -688,7 +636,7 @@ def parse_pib(source: dict) -> list[dict]:
         title = a.get_text(strip=True)
         href = a["href"]
         if not href.startswith("http"):
-            href = urljoin("https://www.pib.gov.in", href)
+            href = urljoin("https://www.sebi.gov.in", href)
         li_text = li.get_text(separator=" ", strip=True)
         date_match = DATE_RE.search(li_text)
         _process(title, href, li_text, date_match.group(1) if date_match else "")
@@ -699,7 +647,7 @@ def parse_pib(source: dict) -> list[dict]:
 def parse_gem(source: dict) -> list[dict]:
     """
     Government e-procurement / GeM tender portal parser.
-    FIX: Added dynamic execution fallback checks to alert logs if dynamic tables run empty.
+    Tender data is typically in HTML tables or structured list rows.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
@@ -710,11 +658,7 @@ def parse_gem(source: dict) -> list[dict]:
     if not soup:
         return []
 
-    rows = soup.find_all("tr")
-    if not rows:
-        print(f"    ⚠  No static HTML elements found for {org}. Dynamic client-side parsing needed.")
-
-    for row in rows:
+    for row in soup.find_all("tr"):
         row_text = row.get_text(separator=" ", strip=True)
         if len(row_text) < 10:
             continue
@@ -747,9 +691,8 @@ def parse_gem(source: dict) -> list[dict]:
 
 PARSER_MAP = {
     "rss_news": parse_rss,
-    "sebi":     parse_sebi,
-    "pib":      parse_pib,
-    "gem":      parse_gem,
+    "sebi": parse_sebi,
+    "gem": parse_gem,
 }
 
 # ==========================================
@@ -787,6 +730,7 @@ if os.path.exists(HISTORY_PATH) and not df_today.empty:
         known_uids = set(df_history["uid"].dropna())
         df_new = df_today[~df_today["uid"].isin(known_uids)].copy()
     else:
+        # Old history format (org + keyword) — migrate gracefully
         print("  ⚠  Old history format detected; migrating to URL-based dedup.")
         df_new = df_today.copy()
         df_history = pd.DataFrame(columns=["uid", "date_seen"])
@@ -842,7 +786,6 @@ WRAPPER_STYLE = (
     'margin:0 auto;background:#f1f5f9;padding:20px;'
 )
 
-
 def render_header(count: int) -> str:
     return f"""
     <div style="background:#0f172a;padding:22px 28px;border-radius:8px 8px 0 0;">
@@ -889,11 +832,9 @@ def render_article_card(row: pd.Series, cfg: dict) -> str:
       <table width="100%" cellspacing="0" cellpadding="0" border="0">
         <tr>
           <td width="1" valign="top" style="padding-right:12px;">
-            <!-- FIX: Modified space formatting parameters below to force wrapping on ultra-long tracking labels -->
             <span style="background:{cfg["badge_bg"]};color:#fff;font-size:10px;
                          font-weight:700;padding:2px 9px;border-radius:12px;
-                         white-space:normal;display:inline-block;max-width:180px;
-                         line-height:1.2;text-align:center;">
+                         white-space:nowrap;display:inline-block;">
               {row["keyword"]}
             </span>
           </td>
@@ -918,6 +859,7 @@ def render_category_section(df: pd.DataFrame, category: str, cfg: dict, always_s
     if cat_df.empty:
         if not always_show:
             return ""
+        # Show a "nothing new today" placeholder for always-visible sections
         empty_card = f"""
     <div style="padding:14px 20px;background:#fff;">
       <p style="margin:0;font-size:12px;color:#94a3b8;font-style:italic;">
