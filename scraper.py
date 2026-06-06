@@ -173,110 +173,73 @@ SOURCES = [
         "category": "Tenders",
         "parser": "gem",
     },
-    # ── ESG News ─────────────────────────────────────────────────────────────
+    # ── ESG News — Google News hybrid (4 broad queries replace 12 individual scrapers) ──
+    # Each entry uses gnews=True so _process_feed pulls the real publisher
+    # from entry.source.title (e.g. "ESG Today", "Reuters") per article.
+    # URL-based uid dedup handles overlap between the 4 queries automatically.
     {
-        "org": "ESG Today",
-        "url": "https://www.esgtoday.com/",
-        "rss": "https://www.esgtoday.com/feed/",
+        # Standards & Disclosure: ESG, CSRD, ISSB, BRSR, greenwashing, TCFD
+        "org": "ESG News",   # fallback label; overridden per-article via entry.source.title
+        "url": "https://news.google.com/",
+        "rss": (
+            "https://news.google.com/rss/search"
+            "?q=ESG+OR+CSRD+OR+ISSB+OR+BRSR+OR+greenwashing+OR+TCFD"
+            "+OR+%22sustainability+reporting%22+OR+%22ESG+disclosure%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
+        "gnews": True,
     },
     {
-        "org": "Trellis / GreenBiz",
-        "url": "https://trellis.net/",
-        "rss": "https://trellis.net/rss/everything",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:trellis.net+ESG+sustainability&hl=en-US&gl=US&ceid=US:en",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
+        # Carbon & Climate: credits, net zero, removal, offsets, climate risk/finance
         "org": "ESG News",
-        "url": "https://esgnews.com/",
-        "rss": "https://esgnews.com/feed/",
+        "url": "https://news.google.com/",
+        "rss": (
+            "https://news.google.com/rss/search"
+            "?q=%22carbon+credit%22+OR+%22net+zero%22+OR+%22carbon+removal%22"
+            "+OR+%22climate+risk%22+OR+%22carbon+offset%22+OR+%22carbon+market%22"
+            "+OR+decarbonisation+OR+%22climate+finance%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
+        "gnews": True,
     },
     {
-        "org": "Sustainability Magazine",
-        "url": "https://sustainabilitymag.com/",
-        "rss": "https://sustainabilitymag.com/feed/",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:sustainabilitymag.com+sustainability+ESG&hl=en-US&gl=US&ceid=US:en",
+        # Green Finance & Energy: bonds, renewables, EVs, biodiversity, water
+        "org": "ESG News",
+        "url": "https://news.google.com/",
+        "rss": (
+            "https://news.google.com/rss/search"
+            "?q=%22green+bond%22+OR+%22sustainable+finance%22"
+            "+OR+%22renewable+energy%22+OR+%22energy+transition%22"
+            "+OR+biodiversity+OR+%22water+stewardship%22"
+            "+OR+%22electric+vehicle%22+OR+%22forest+carbon%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
+        "gnews": True,
     },
     {
-        "org": "ESG Dive",
-        "url": "https://www.esgdive.com/",
-        "rss": "https://www.esgdive.com/feeds/news/",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:esgdive.com+ESG+sustainability&hl=en-US&gl=US&ceid=US:en",
+        # India-focused ESG: SEBI, BRSR, India net-zero, India green bonds (IN locale)
+        "org": "ESG News",
+        "url": "https://news.google.com/",
+        "rss": (
+            "https://news.google.com/rss/search"
+            "?q=India+ESG+OR+India+BRSR+OR+%22India+sustainability%22"
+            "+OR+%22India+net+zero%22+OR+%22India+carbon%22"
+            "+OR+%22SEBI+ESG%22+OR+%22India+green+bond%22"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
-    },
-    {
-        "org": "ESG Clarity",
-        "url": "https://esgclarity.com/",
-        "rss": "https://esgclarity.com/feed/",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:esgclarity.com+ESG&hl=en-US&gl=US&ceid=US:en",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
-        "org": "ESG Investing",
-        "url": "https://www.esginvesting.co.uk/",
-        "rss": "https://www.esginvesting.co.uk/feed/",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:esginvesting.co.uk+ESG&hl=en-US&gl=US&ceid=US:en",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
-        "org": "Financial Advisor Magazine",
-        "url": "https://www.fa-mag.com/",
-        "rss": "https://www.fa-mag.com/rss.xml",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:fa-mag.com+ESG+sustainable+climate&hl=en-US&gl=US&ceid=US:en",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
-        "org": "Environmental Finance",
-        "url": "https://www.environmental-finance.com/",
-        "rss": "https://www.environmental-finance.com/rss.xml",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:environmental-finance.com+carbon+ESG+sustainability&hl=en-US&gl=US&ceid=US:en",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
-        "org": "GreenMoney",
-        "url": "https://greenmoney.com/",
-        "rss": "https://greenmoney.com/feed/",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
-        "org": "Mondaq",
-        "url": "https://www.mondaq.com/",
-        "rss": "https://www.mondaq.com/rss.aspx",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
-        "org": "Govt of India (PIB)",
-        "url": "https://www.pib.gov.in/allRel.aspx?reg=1&lang=1",
-        "rss": "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3",
-        "rss_gnews": "https://news.google.com/rss/search?q=site:pib.gov.in+sustainability+ESG+carbon+net+zero&hl=en-IN&gl=IN&ceid=IN:en",
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
+        "gnews": True,
     },
     # ── Regulatory ────────────────────────────────────────────────────────────
     {
@@ -432,13 +395,32 @@ def parse_rss(source: dict) -> list[dict]:
     base_url = source["url"]
 
     def _process_feed(feed) -> list[dict]:
-        """Extract keyword-matching hits from a feedparser feed object."""
+        """Extract keyword-matching hits from a feedparser feed object.
+
+        For Google News RSS feeds (gnews=True in source), each entry carries
+        the real publisher in entry.source.title (e.g. 'ESG Today', 'Reuters').
+        We use that as the 'org' label so the email shows the original outlet,
+        not 'Google News'.
+        """
+        is_gnews = source.get("gnews", False)
         result = []
         for entry in feed.entries:
             title = entry.get("title", "").strip()
             link = entry.get("link", "").strip()
             summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
             pub_date = entry.get("published", entry.get("updated", ""))
+
+            # Resolve per-entry publisher for Google News feeds
+            if is_gnews:
+                src_info = entry.get("source", {})
+                # feedparser exposes source as a FeedParserDict; .get() works on it
+                entry_org = (
+                    src_info.get("title", "")
+                    or getattr(src_info, "title", "")
+                    or org
+                )
+            else:
+                entry_org = org
 
             # Skip items older than RECENCY_DAYS
             dt = parse_fuzzy_date(pub_date)
@@ -450,7 +432,7 @@ def parse_rss(source: dict) -> list[dict]:
             if kw and link not in seen:
                 seen.add(link)
                 result.append({
-                    "org": org,
+                    "org": entry_org,
                     "category": source["category"],
                     "keyword": kw,
                     "title": title,
@@ -490,6 +472,11 @@ def parse_rss(source: dict) -> list[dict]:
         return hits
 
     # ─ HTML fallback ───────────────────────────────────────────────────────
+    # Skip for Google News primary sources: their base_url is news.google.com,
+    # which is not HTML-scrapeable in the conventional sense.
+    if source.get("gnews"):
+        return []
+
     soup = fetch_soup(base_url)
     if not soup:
         return []
@@ -724,6 +711,16 @@ df_today = pd.DataFrame(all_results) if all_results else pd.DataFrame(
     columns=["org", "category", "keyword", "title", "article_url", "date", "snippet", "uid"]
 )
 
+# Within-run dedup: same article can appear from multiple Google News queries.
+# Keep the first occurrence (usually the best keyword match, since queries are
+# ordered from most-specific to broadest).
+if not df_today.empty:
+    before = len(df_today)
+    df_today = df_today.drop_duplicates(subset="uid", keep="first").reset_index(drop=True)
+    dupes_dropped = before - len(df_today)
+    if dupes_dropped:
+        print(f"  Cross-query duplicates removed: {dupes_dropped}")
+
 if os.path.exists(HISTORY_PATH) and not df_today.empty:
     df_history = pd.read_csv(HISTORY_PATH)
     if "uid" in df_history.columns:
@@ -903,7 +900,7 @@ def build_email(df_new: pd.DataFrame) -> str:
         </div>"""
 
     sections = "".join(
-        render_category_section(df_new, cat, cfg, always_show=(cat == "Regulatory"))
+        render_category_section(df_new, cat, cfg, always_show=(cat in ("Regulatory", "Tenders")))
         for cat, cfg in CATEGORY_STYLE.items()
     )
     return f"""
