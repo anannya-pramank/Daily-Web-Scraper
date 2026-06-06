@@ -1172,19 +1172,19 @@ CATEGORY_STYLE = {
         "light_bg":   "#fffbeb",
         "icon":       "⚖️",
     },
-    "ESG News": {
-        "header_bg":  "#065f46",
-        "badge_bg":   "#059669",
-        "border":     "#10b981",
-        "light_bg":   "#ecfdf5",
-        "icon":       "📰",
-    },
     "Tenders": {
         "header_bg":  "#1e40af",
         "badge_bg":   "#1e40af",
         "border":     "#3b82f6",
         "light_bg":   "#eff6ff",
         "icon":       "📋",
+    },
+    "ESG News": {
+        "header_bg":  "#065f46",
+        "badge_bg":   "#059669",
+        "border":     "#10b981",
+        "light_bg":   "#ecfdf5",
+        "icon":       "📰",
     },
 }
 
@@ -1215,6 +1215,12 @@ def render_summary_bar(df: pd.DataFrame) -> str:
                 f'<span style="background:{cfg["header_bg"]};color:#fff;'
                 f'font-size:12px;padding:3px 12px;border-radius:20px;'
                 f'font-weight:600;">{cfg["icon"]} {n} {cat}</span>'
+            )
+        else:
+            pills.append(
+                f'<span style="background:#e2e8f0;color:#94a3b8;'
+                f'font-size:12px;padding:3px 12px;border-radius:20px;'
+                f'font-weight:600;">{cfg["icon"]} 0 {cat}</span>'
             )
     pill_html = "&nbsp;&nbsp;".join(pills)
     return f"""
