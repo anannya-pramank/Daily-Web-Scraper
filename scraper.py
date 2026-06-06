@@ -239,12 +239,16 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
+        # BizClik CMS — no native RSS feed exists.
+        # Primary: Google News site-scoped search (with ESG terms to improve relevance).
+        # HTML fallback: scrape the /esg topic listing page directly.
         "org": "Sustainability Magazine",
-        "url": "https://sustainabilitymag.com/",
-        "rss": "https://sustainabilitymag.com/feed/",
+        "url": "https://sustainabilitymag.com/esg",
+        "rss": None,
         "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=site:sustainabilitymag.com&hl=en-US&gl=US&ceid=US:en"
+            "?q=site:sustainabilitymag.com+ESG+OR+sustainability+OR+carbon+OR+net+zero"
+            "&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
@@ -265,10 +269,11 @@ SOURCES = [
     {
         "org": "ESG Clarity",
         "url": "https://esgclarity.com/",
-        "rss": "https://esgclarity.com/feed/",
+        "rss": "https://esgclarity.com/feed",
         "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=site:esgclarity.com&hl=en-US&gl=US&ceid=US:en"
+            "?q=site:esgclarity.com+ESG+OR+sustainable+OR+carbon"
+            "&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
@@ -289,10 +294,11 @@ SOURCES = [
     {
         "org": "Financial Advisor Magazine",
         "url": "https://www.fa-mag.com/",
-        "rss": "https://www.fa-mag.com/rss/news.xml",
+        "rss": "https://www.fa-mag.com/rss.php",
         "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=site:fa-mag.com+ESG+OR+sustainability&hl=en-US&gl=US&ceid=US:en"
+            "?q=site:fa-mag.com+ESG+OR+sustainability+OR+carbon"
+            "&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
