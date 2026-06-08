@@ -144,23 +144,16 @@ REALTIME_KEYWORDS = [
 ]
 
 SEBI_KEYWORDS = [
-    # ESG-specific SEBI reporting obligations (narrow — avoids false-positive LODR/MPS circulars)
-    "BRSR", "BRSR Core",
-    # Sustainability & ESG terms that appear in SEBI circular titles
-    "Sustainability", "ESG",
-    # Green / sustainable / social finance
-    "Green Bond", "Social Bond", "Sustainability Bond", "Green Finance",
-    # Climate & carbon
-    "Climate", "Carbon", "Net Zero",
-    # Nature & water
-    "Biodiversity", "Water Stewardship",
-    # International frameworks SEBI references
-    "TCFD", "GRI", "ISSB", "IFRS S",
+    # Matches tracking list exactly: BRSR/LODR/Assurance/Assessment/BRSR Core only
+    "BRSR Core", "BRSR",
+    "Listing Obligations and Disclosure Requirements",
+    "LODR",
+    "Assurance", "Assessment",
 ]
 
-# Tighter keyword set for PIB India — strips broad terms ("Sustainability", "Climate Change")
-# that catch generic govt press releases (zoo apps, environment-day ceremonies, etc.).
-# Only retains signals that directly imply a regulatory, policy, or compliance development.
+# Tighter keyword set for PIB India — strips broad terms that catch generic govt press
+# releases (zoo apps, environment-day ceremonies). Spirit of tracker "all ESG related
+# real time updates" but limited to high-signal regulatory/policy terms only.
 PIB_INDIA_KEYWORDS = [
     "BRSR", "BRSR Core", "ESG Disclosure", "ESG Reporting", "ESG Framework", "ESG",
     "Green Bond", "Sustainability Bond", "Social Bond", "Green Finance",
@@ -562,13 +555,12 @@ def parse_rss(source: dict) -> list[dict]:
             if dt and dt < NEWS_CUTOFF:
                 continue
 
-            # Skip event-calendar entries: detected by two "@HH:MM am/pm" patterns
-            # (start time + end time) which are the hallmark of calendar listings rather
-            # than news articles.  Avoids "London Climate Action Week @ 8:00 am" style entries.
-            _combined = f"{title} {summary}"
+            # Skip event-calendar entries: two "@HH:MM am/pm" patterns (start + end time)
+            # are the structural fingerprint of calendar listings, not news articles.
+            _combined_check = f"{title} {summary}"
             if re.search(
                 r'@\s*\d{1,2}:\d{2}\s*(?:am|pm).{0,80}@\s*\d{1,2}:\d{2}\s*(?:am|pm)',
-                _combined, re.IGNORECASE
+                _combined_check, re.IGNORECASE
             ):
                 continue
 
@@ -1291,19 +1283,20 @@ GEMINI_API_URL = (
     "gemini-3.5-flash:generateContent"
 )
 
-def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
+def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
     """
     Returns:
-        digest_summary  : str   – overall theme paragraph (HTML-safe plain text)
-        uid_summaries   : dict  – {uid: one_line_summary} for every row in df_new
+        digest_summary  : str   – executive briefing (Tier 1 items only)
+        uid_summaries   : dict  – {uid: summary} for Tier 1 and Tier 2 items
+        excluded_uids   : set   – UIDs of Tier 3 items to remove from the rendered email
     """
     if df_new.empty:
-        return "", {}
+        return "", {}, set()
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         print("  ⚠  GEMINI_API_KEY not set — skipping AI summaries.")
-        return "", {}
+        return "", {}, set()
 
     print("  → Generating AI summaries via Gemini REST API…")
 
@@ -1329,10 +1322,11 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         "implications (e.g. new SEBI circular, CBAM update, CSRD implementation news).\n"
         "TIER 2 — Medium signal: useful market or industry development worth monitoring but "
         "without an immediate compliance obligation (e.g. voluntary benchmarks, industry "
-        "initiatives, company sustainability disclosures, impact investing updates).\n"
-        "TIER 3 — Low signal / exclude: conference/event announcements with no policy content, "
-        "generic thought-leadership, awards, ceremonial government events, or articles "
-        "with no actionable compliance relevance.\n\n"
+        "initiatives, company sustainability disclosures, investor trend reports).\n"
+        "TIER 3 — Exclude: conference/event announcements with no policy content, "
+        "generic thought-leadership, anniversary/milestone articles, awards, ceremonial "
+        "government events, weekly roundup articles, or anything with no actionable "
+        "compliance relevance for a corporate legal team.\n\n"
         "═══ STEP 2: SUMMARIES ═══\n"
         "TIER 1 items → write a 5-6 line TL;DR:\n"
         "  Line 1: What was announced, decided, or published.\n"
@@ -1344,16 +1338,17 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         "  Line 5: Penalties or enforcement risk (only if stated in the source).\n"
         "  Line 6: Recommended action for compliance teams.\n"
         "TIER 2 items → write 2 sentences: what it is, and why compliance teams should monitor it.\n"
-        "TIER 3 items → set to null.\n\n"
+        "TIER 3 items → set to null. These will be removed from the digest entirely.\n\n"
         "═══ STEP 3: DIGEST ═══\n"
         "Write a 3-4 sentence executive briefing for a General Counsel covering TIER 1 items only. "
         "Be specific: name the instruments, jurisdictions, and deadlines involved. "
-        "Do not pad with generic ESG commentary.\n\n"
+        "If there are no Tier 1 items today, say so in one sentence and note the most "
+        "significant Tier 2 development worth watching.\n\n"
         "CRITICAL RULES:\n"
-        "• Never cite a regulation, framework, or penalty figure that is not explicitly supported "
-        "by the source text. If the source is thin, keep the summary short — do not fabricate context.\n"
+        "• Never cite a regulation, framework, or penalty figure not explicitly supported "
+        "by the source. If the source is thin, keep the summary short.\n"
         "• Write in plain declarative prose. No bullet points inside summaries.\n"
-        "• If an item is a TIER 3, its summary must be null (JSON null, not the string 'null').\n\n"
+        "• TIER 3 summaries must be JSON null, not the string 'null'.\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
         "{\n"
         '  "digest_summary": "...",\n'
@@ -1384,22 +1379,27 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         import traceback
         print(f"  ⚠  AI summary failed: {exc}")
         traceback.print_exc()
-        return "", {}
+        return "", {}, set()
 
     digest_summary = data.get("digest_summary", "")
     article_summaries = data.get("article_summaries", {})
 
     uid_summaries: dict[str, str] = {}
+    excluded_uids: set[str] = set()
+
     for str_idx, summary in article_summaries.items():
         try:
             idx = int(str_idx) - 1
-            if 0 <= idx < len(rows) and summary:  # skip null/empty (Tier 3 exclusions)
-                uid_summaries[rows[idx].uid] = summary
+            if 0 <= idx < len(rows):
+                if summary:  # Tier 1 or Tier 2 — include with summary
+                    uid_summaries[rows[idx].uid] = summary
+                else:        # null = Tier 3 — exclude from digest entirely
+                    excluded_uids.add(rows[idx].uid)
         except (ValueError, IndexError):
             pass
 
-    print(f"    ✓ AI summaries generated ({len(uid_summaries)} article(s) + digest)")
-    return digest_summary, uid_summaries
+    print(f"    ✓ AI triage: {len(uid_summaries)} included, {len(excluded_uids)} excluded (Tier 3)")
+    return digest_summary, uid_summaries, excluded_uids
 
 
 # ==========================================
@@ -1600,10 +1600,18 @@ def render_ai_digest_block(digest_summary: str) -> str:
 
 
 def build_email(df_new: pd.DataFrame) -> str:
-    # ── AI summaries (single API call for the whole digest) ───────────────────
-    digest_summary, uid_summaries = generate_ai_summaries(df_new)
+    # ── AI triage + summaries (single API call for the whole digest) ──────────
+    digest_summary, uid_summaries, excluded_uids = generate_ai_summaries(df_new)
 
-    if df_new.empty:
+    # Remove Tier 3 items from the rendered digest entirely.
+    # Fallback: if AI triage didn't run (empty excluded_uids), show everything.
+    if excluded_uids:
+        df_render = df_new[~df_new["uid"].isin(excluded_uids)].copy().reset_index(drop=True)
+        print(f"  → Tier 3 filter: {len(df_new)} scraped → {len(df_render)} rendered")
+    else:
+        df_render = df_new
+
+    if df_render.empty:
         content = (
             '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
             '<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:24px 20px;">'
@@ -1618,16 +1626,16 @@ def build_email(df_new: pd.DataFrame) -> str:
     else:
         content = "".join(
             render_category_section(
-                df_new, cat, cfg,
+                df_render, cat, cfg,
                 always_show=(cat in ("Regulatory", "Tenders")),
                 uid_summaries=uid_summaries,
             )
             for cat, cfg in CATEGORY_STYLE.items()
         )
-        summary_html = render_summary_bar(df_new)
+        summary_html = render_summary_bar(df_render)
         ai_digest_html = render_ai_digest_block(digest_summary)
 
-    inner = render_header(len(df_new)) + summary_html + ai_digest_html + content + render_footer()
+    inner = render_header(len(df_render)) + summary_html + ai_digest_html + content + render_footer()
 
     # MSO conditional comment centres the email in Outlook desktop (which ignores
     # max-width + margin:auto on divs).  Non-Outlook clients use the div instead.
