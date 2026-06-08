@@ -17,18 +17,45 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright google-genai
+
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('**/daily_run.yml') }}
+
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
+
+      - name: Pre-flight — Gemini check
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python - <<'PYEOF'
+          import os
+          from google import genai
+
+          key = os.environ.get("GEMINI_API_KEY", "")
+          print(f"[PRE-FLIGHT] GEMINI_API_KEY set: {bool(key)}")
+          if not key:
+              print("[PRE-FLIGHT] Secret is empty — add GEMINI_API_KEY in repo Settings > Secrets")
+              raise SystemExit(1)
+
+          client = genai.Client(api_key=key)
+          resp = client.models.generate_content(
+              model="gemini-2.0-flash",
+              contents="Reply with the single word: ok",
+          )
+          print(f"[PRE-FLIGHT] Gemini ping response: {resp.text.strip()}")
+          print("[PRE-FLIGHT] Gemini connection confirmed")
+          PYEOF
+
       - name: Run ESG Scraper
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python scraper.py
+
       - name: Persist History & Email Archive
         run: |
           git config --local user.email "actions@github.com"
