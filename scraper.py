@@ -1313,7 +1313,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
     try:
         client = _genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-1.5-flash",
             contents=prompt,
             config=_genai.types.GenerateContentConfig(
                 response_mime_type="application/json",
