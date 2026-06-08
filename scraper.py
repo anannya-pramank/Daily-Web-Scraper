@@ -1231,180 +1231,217 @@ if not df_new.empty:
     )
 
 # ==========================================
-# 8. EMAIL HTML BUILDER
+# 8. EMAIL HTML BUILDER  (Outlook-safe table layout)
 # ==========================================
+#
+# Outlook desktop uses Word's HTML renderer, which ignores:
+#   border-radius, box-shadow, overflow:hidden, opacity, rgba(),
+#   max-width + margin:auto on divs, and many CSS shorthands.
+#
+# Rules applied here:
+#   • All layout via <table> — no <div> containers
+#   • bgcolor attribute on every <td> alongside CSS background
+#   • Explicit font-family on every text element
+#   • No border-radius, box-shadow, overflow:hidden, opacity, rgba()
+#   • MSO conditional comment wrapper for centering the outer table
+#   • Full <!DOCTYPE> + <html> envelope so Outlook parses correctly
 
 CATEGORY_STYLE = {
     "Regulatory": {
-        "header_bg":  "#78350f",
-        "badge_bg":   "#d97706",
-        "border":     "#f59e0b",
-        "light_bg":   "#fffbeb",
-        "icon":       "⚖️",
+        "header_bg": "#78350f",
+        "badge_bg":  "#d97706",
+        "border":    "#f59e0b",
+        "icon":      "⚖️",
     },
     "Tenders": {
-        "header_bg":  "#1e40af",
-        "badge_bg":   "#1e40af",
-        "border":     "#3b82f6",
-        "light_bg":   "#eff6ff",
-        "icon":       "📋",
+        "header_bg": "#1e40af",
+        "badge_bg":  "#1e40af",
+        "border":    "#3b82f6",
+        "icon":      "📋",
     },
     "ESG News": {
-        "header_bg":  "#065f46",
-        "badge_bg":   "#059669",
-        "border":     "#10b981",
-        "light_bg":   "#ecfdf5",
-        "icon":       "📰",
+        "header_bg": "#065f46",
+        "badge_bg":  "#059669",
+        "border":    "#10b981",
+        "icon":      "📰",
     },
 }
 
-WRAPPER_STYLE = (
-    'font-family:Arial,Helvetica,sans-serif;max-width:760px;'
-    'margin:0 auto;background:#f1f5f9;padding:20px;'
-)
+_FONT = "font-family:Arial,Helvetica,sans-serif;"
+
 
 def render_header(count: int) -> str:
-    return f"""
-    <div style="background:#0f172a;padding:22px 28px;border-radius:8px 8px 0 0;">
-      <h1 style="color:#f8fafc;margin:0 0 4px;font-size:22px;font-weight:700;
-                 letter-spacing:-0.3px;">
-        ESG Intelligence Digest
-      </h1>
-      <p style="color:#94a3b8;margin:0;font-size:13px;">
-        {TODAY_STR} &nbsp;·&nbsp; {count} new item(s) identified today
-      </p>
-    </div>"""
+    return (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+        '<tr><td bgcolor="#0f172a" style="background:#0f172a;padding:22px 28px;">'
+        f'<h1 style="color:#f8fafc;margin:0 0 5px 0;font-size:22px;font-weight:700;{_FONT}">'
+        "ESG Intelligence Digest"
+        "</h1>"
+        f'<p style="color:#94a3b8;margin:0;font-size:13px;{_FONT}">'
+        f"{TODAY_STR} &nbsp;&middot;&nbsp; {count} new item(s) identified today"
+        "</p>"
+        "</td></tr></table>"
+    )
 
 
 def render_summary_bar(df: pd.DataFrame) -> str:
-    pills = []
+    cells = []
     for cat, cfg in CATEGORY_STYLE.items():
         n = len(df[df["category"] == cat])
-        if n:
-            pills.append(
-                f'<span style="background:{cfg["header_bg"]};color:#fff;'
-                f'font-size:12px;padding:3px 12px;border-radius:20px;'
-                f'font-weight:600;">{cfg["icon"]} {n} {cat}</span>'
-            )
-        else:
-            pills.append(
-                f'<span style="background:#e2e8f0;color:#94a3b8;'
-                f'font-size:12px;padding:3px 12px;border-radius:20px;'
-                f'font-weight:600;">{cfg["icon"]} 0 {cat}</span>'
-            )
-    pill_html = "&nbsp;&nbsp;".join(pills)
-    return f"""
-    <div style="background:#fff;padding:14px 20px;border:1px solid #e2e8f0;
-                border-top:none;margin-bottom:20px;border-radius:0 0 6px 6px;">
-      <p style="margin:0;font-size:13px;color:#475569;">{pill_html}</p>
-    </div>"""
+        bg = cfg["header_bg"] if n else "#94a3b8"
+        label = f'{cfg["icon"]} {n} {cat}'
+        cells.append(
+            f'<td style="padding:0 8px 0 0;">'
+            f'<span style="background:{bg};color:#ffffff;font-size:11px;'
+            f'font-weight:700;padding:3px 10px;display:inline-block;{_FONT}">'
+            f'{label}</span></td>'
+        )
+    return (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+        '<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:12px 20px;'
+        'border-bottom:2px solid #e2e8f0;">'
+        f'<table cellspacing="0" cellpadding="0" border="0"><tr>{"".join(cells)}</tr></table>'
+        "</td></tr></table>"
+    )
 
 
 def render_article_card(row: pd.Series, cfg: dict) -> str:
-    date_html = (
-        f'<span style="color:#94a3b8;font-size:11px;">{row["date"]}</span>&nbsp;·&nbsp;'
+    date_part = (
+        f'<span style="color:#94a3b8;font-size:11px;{_FONT}">{row["date"]}</span>'
+        " &nbsp;&middot;&nbsp; "
         if row.get("date") else ""
     )
-    snippet_html = (
-        f'<p style="color:#64748b;font-size:12px;margin:6px 0 0;line-height:1.6;">'
+    snippet_part = (
+        f'<p style="color:#64748b;font-size:12px;margin:5px 0 0 0;line-height:1.6;{_FONT}">'
         f'{row["snippet"]}</p>'
         if row.get("snippet") else ""
     )
-    return f"""
-    <div style="padding:14px 20px;border-bottom:1px solid #e8edf3;background:#fff;">
-      <table width="100%" cellspacing="0" cellpadding="0" border="0">
-        <tr>
-          <td width="1" valign="top" style="padding-right:12px;">
-            <span style="background:{cfg["badge_bg"]};color:#fff;font-size:10px;
-                         font-weight:700;padding:2px 9px;border-radius:12px;
-                         white-space:nowrap;display:inline-block;">
-              {row["keyword"]}
-            </span>
-          </td>
-          <td valign="top">
-            <a href="{row["article_url"]}"
-               style="color:#1e3a8a;font-weight:600;font-size:13px;
-                      text-decoration:none;line-height:1.45;display:block;">
-              {row["title"]}
-            </a>
-            <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;">
-              {date_html}{row["org"]}
-            </p>
-            {snippet_html}
-          </td>
-        </tr>
-      </table>
-    </div>"""
+    return (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+        '<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:12px 20px;'
+        'border-bottom:1px solid #e8edf3;">'
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
+
+        # Badge column
+        '<td width="1" valign="top" style="padding-right:10px;white-space:nowrap;">'
+        f'<span style="background:{cfg["badge_bg"]};color:#ffffff;font-size:10px;'
+        f'font-weight:700;padding:2px 8px;display:inline-block;{_FONT}">'
+        f'{row["keyword"]}</span>'
+        "</td>"
+
+        # Content column
+        '<td valign="top">'
+        f'<a href="{row["article_url"]}" style="color:#1e3a8a;font-weight:700;'
+        f'font-size:13px;text-decoration:none;line-height:1.5;display:block;{_FONT}">'
+        f'{row["title"]}</a>'
+        f'<p style="margin:3px 0 0 0;font-size:11px;color:#94a3b8;{_FONT}">'
+        f'{date_part}{row["org"]}</p>'
+        f"{snippet_part}"
+        "</td>"
+
+        "</tr></table>"
+        "</td></tr></table>"
+    )
 
 
-def render_category_section(df: pd.DataFrame, category: str, cfg: dict, always_show: bool = False) -> str:
+def render_category_section(
+    df: pd.DataFrame, category: str, cfg: dict, always_show: bool = False
+) -> str:
     cat_df = df[df["category"] == category]
+    n = len(cat_df)
+    count_label = f'({n} item{"s" if n != 1 else ""})'
+
     if cat_df.empty:
         if not always_show:
             return ""
-        # Show a "nothing new today" placeholder for always-visible sections
-        empty_card = f"""
-    <div style="padding:14px 20px;background:#fff;">
-      <p style="margin:0;font-size:12px;color:#94a3b8;font-style:italic;">
-        ✅ No new {category} items today.
-      </p>
-    </div>"""
-        cards = empty_card
+        cards = (
+            '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+            '<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:12px 20px;">'
+            f'<p style="margin:0;font-size:12px;color:#94a3b8;font-style:italic;{_FONT}">'
+            f"&#10003; No new {category} items today."
+            "</p></td></tr></table>"
+        )
     else:
         cards = "".join(render_article_card(row, cfg) for _, row in cat_df.iterrows())
-    return f"""
-    <div style="margin-bottom:24px;border-radius:6px;overflow:hidden;
-                box-shadow:0 1px 4px rgba(0,0,0,0.08);">
-      <div style="background:{cfg["header_bg"]};padding:11px 20px;">
-        <h2 style="color:#fff;margin:0;font-size:14px;font-weight:700;
-                   letter-spacing:0.3px;">
-          {cfg["icon"]}&nbsp; {category.upper()}
-          &nbsp;<span style="font-weight:400;opacity:0.75;font-size:12px;">
-            ({len(cat_df)} item{"s" if len(cat_df) != 1 else ""})
-          </span>
-        </h2>
-      </div>
-      {cards}
-    </div>"""
 
+    return (
+        f'<table width="100%" cellspacing="0" cellpadding="0" border="0" '
+        f'style="margin-bottom:20px;border:1px solid {cfg["border"]};">'
 
-def build_email(df_new: pd.DataFrame) -> str:
-    if df_new.empty:
-        return f"""
-        <div style="{WRAPPER_STYLE}">
-          {render_header(0)}
-          <div style="background:#fff;padding:24px;border:1px solid #e2e8f0;
-                      border-top:none;border-radius:0 0 8px 8px;margin-bottom:8px;">
-            <p style="color:#475569;font-size:14px;background:#f8fafc;
-                      padding:16px;border-radius:4px;border-left:4px solid #94a3b8;
-                      margin:0;">
-              ✅ Daily scan completed — no new matching items found today.
-              All sources are up to date.
-            </p>
-          </div>
-          {render_footer()}
-        </div>"""
+        "<tr>"
+        f'<td bgcolor="{cfg["header_bg"]}" style="background:{cfg["header_bg"]};padding:10px 20px;">'
+        f'<span style="color:#ffffff;font-size:14px;font-weight:700;{_FONT}">'
+        f'{cfg["icon"]}&nbsp; {category.upper()}&nbsp;'
+        f'<span style="font-weight:400;font-size:12px;color:#e5e7eb;">{count_label}</span>'
+        "</span>"
+        "</td>"
+        "</tr>"
 
-    sections = "".join(
-        render_category_section(df_new, cat, cfg, always_show=(cat in ("Regulatory", "Tenders")))
-        for cat, cfg in CATEGORY_STYLE.items()
+        f'<tr><td style="padding:0;">{cards}</td></tr>'
+
+        "</table>"
     )
-    return f"""
-    <div style="{WRAPPER_STYLE}">
-      {render_header(len(df_new))}
-      {render_summary_bar(df_new)}
-      {sections}
-      {render_footer()}
-    </div>"""
 
 
 def render_footer() -> str:
     return (
-        '<p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:12px;">'
-        "Automated ESG Intelligence System &nbsp;·&nbsp; "
-        "All links go directly to source articles &nbsp;·&nbsp; "
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+        '<tr><td style="padding:14px 0;text-align:center;">'
+        f'<p style="font-size:11px;color:#94a3b8;margin:0;{_FONT}">'
+        "Automated ESG Intelligence System &nbsp;&middot;&nbsp; "
+        "All links go directly to source articles &nbsp;&middot;&nbsp; "
         "Historical duplicates auto-filtered"
-        "</p>"
+        "</p></td></tr></table>"
+    )
+
+
+def build_email(df_new: pd.DataFrame) -> str:
+    if df_new.empty:
+        content = (
+            '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+            '<tr><td bgcolor="#ffffff" style="background:#ffffff;padding:24px 20px;">'
+            f'<p style="color:#475569;font-size:14px;margin:0;padding:14px 14px 14px 18px;'
+            f'background:#f8fafc;border-left:4px solid #94a3b8;{_FONT}">'
+            "&#10003; Daily scan completed &mdash; no new matching items found today. "
+            "All sources are up to date."
+            "</p></td></tr></table>"
+        )
+        summary_html = ""
+    else:
+        content = "".join(
+            render_category_section(
+                df_new, cat, cfg,
+                always_show=(cat in ("Regulatory", "Tenders")),
+            )
+            for cat, cfg in CATEGORY_STYLE.items()
+        )
+        summary_html = render_summary_bar(df_new)
+
+    inner = render_header(len(df_new)) + summary_html + content + render_footer()
+
+    # MSO conditional comment centres the email in Outlook desktop (which ignores
+    # max-width + margin:auto on divs).  Non-Outlook clients use the div instead.
+    return (
+        "<!DOCTYPE html>"
+        '<html lang="en"><head>'
+        '<meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta http-equiv="X-UA-Compatible" content="IE=edge">'
+        "<title>ESG Intelligence Digest</title>"
+        "</head>"
+        '<body style="margin:0;padding:0;background:#f1f5f9;">'
+
+        "<!--[if mso]>"
+        '<table align="center" width="680" cellspacing="0" cellpadding="0" border="0">'
+        '<tr><td bgcolor="#f1f5f9" style="background:#f1f5f9;padding:20px;">'
+        "<![endif]-->"
+
+        f'<div style="max-width:680px;margin:0 auto;padding:20px;background:#f1f5f9;{_FONT}">'
+        + inner +
+        "</div>"
+
+        "<!--[if mso]></td></tr></table><![endif]-->"
+        "</body></html>"
     )
 
 
