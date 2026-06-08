@@ -16,7 +16,7 @@ jobs:
           python-version: '3.11'
       - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright google-genai
+          pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -34,22 +34,30 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           python - <<'PYEOF'
-          import os
-          from google import genai
+          import os, requests
 
           key = os.environ.get("GEMINI_API_KEY", "")
           print(f"[PRE-FLIGHT] GEMINI_API_KEY set: {bool(key)}")
           if not key:
-              print("[PRE-FLIGHT] Secret is empty — add GEMINI_API_KEY in repo Settings > Secrets")
+              print("[PRE-FLIGHT] Secret missing — add GEMINI_API_KEY in Settings > Secrets")
               raise SystemExit(1)
 
-          client = genai.Client(api_key=key)
-          resp = client.models.generate_content(
-              model="gemini-1.5-flash",
-              contents="Reply with the single word: ok",
+          url = (
+              "https://generativelanguage.googleapis.com/v1beta/models/"
+              "gemini-1.5-flash-latest:generateContent"
           )
-          print(f"[PRE-FLIGHT] Gemini ping response: {resp.text.strip()}")
-          print("[PRE-FLIGHT] Gemini connection confirmed")
+          resp = requests.post(
+              url,
+              params={"key": key},
+              json={"contents": [{"parts": [{"text": "Reply with the word: ok"}]}]},
+              timeout=30,
+          )
+          print(f"[PRE-FLIGHT] HTTP status: {resp.status_code}")
+          if resp.status_code == 200:
+              print("[PRE-FLIGHT] Gemini connection confirmed")
+          else:
+              print(f"[PRE-FLIGHT] Error body: {resp.text[:500]}")
+              raise SystemExit(1)
           PYEOF
 
       - name: Run ESG Scraper
