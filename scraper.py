@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import hashlib
 import requests
 import pandas as pd
@@ -7,6 +8,12 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
 from email.utils import parsedate_to_datetime
+
+try:
+    from google import genai as _genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
 try:
     import feedparser
@@ -27,9 +34,8 @@ HISTORY_PATH = "Historical_Matches.csv"
 RECENCY_DAYS = 60
 RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
 
-# Tighter window for ESG news articles in the daily digest
-NEWS_LOOKBACK_DAYS = 2
-NEWS_CUTOFF = datetime.now(timezone.utc) - timedelta(days=NEWS_LOOKBACK_DAYS)
+# Tighter window for ESG news articles in the daily digest — hard cap at 48 hours
+NEWS_CUTOFF = datetime.now(timezone.utc) - timedelta(hours=48)
 
 
 def parse_fuzzy_date(text: str):
@@ -633,6 +639,12 @@ def parse_rss(source: dict) -> list[dict]:
             date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) \
                       or container.find("time")
             raw_date = date_el.get_text(strip=True) if date_el else ""
+            # 48-hour gate: if a date is parseable and it's older than NEWS_CUTOFF, skip it.
+            # Items with no extractable date are kept (age unknown).
+            if raw_date:
+                item_dt = parse_fuzzy_date(raw_date)
+                if item_dt and item_dt < NEWS_CUTOFF:
+                    continue
             hits.append({
                 "org": org,
                 "category": source["category"],
@@ -659,6 +671,11 @@ def parse_rss(source: dict) -> list[dict]:
             date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)})
                        or context.find("time")) if context else None
             raw_date = date_el.get_text(strip=True) if date_el else ""
+            # 48-hour gate: same logic as container loop above
+            if raw_date:
+                item_dt = parse_fuzzy_date(raw_date)
+                if item_dt and item_dt < NEWS_CUTOFF:
+                    continue
             hits.append({
                 "org": org,
                 "category": source["category"],
@@ -1231,6 +1248,96 @@ if not df_new.empty:
     )
 
 # ==========================================
+# 7.5  AI DIGEST SUMMARY  (Gemini via Google GenAI API)
+# ==========================================
+#
+# Requires:  pip install google-genai
+# API key:   set GEMINI_API_KEY environment variable before running.
+#
+# Generates two things in a single API call:
+#   • digest_summary  – 2-3 sentence overview of today's most significant themes,
+#                       rendered as a highlighted block at the top of the email.
+#   • article_summary – one crisp sentence per item, shown below the snippet in
+#                       each article card (labelled "🤖 AI Summary").
+#
+# Falls back gracefully (returns empty strings/dict) if the package is missing
+# or the API call fails, so the rest of the pipeline is never blocked.
+
+def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
+    """
+    Returns:
+        digest_summary  : str   – overall theme paragraph (HTML-safe plain text)
+        uid_summaries   : dict  – {uid: one_line_summary} for every row in df_new
+    """
+    if df_new.empty or not GEMINI_AVAILABLE:
+        if not GEMINI_AVAILABLE:
+            print("  ⚠  google-genai package not installed — skipping AI summaries.")
+            print("     Install with:  pip install google-genai")
+        return "", {}
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        print("  ⚠  GEMINI_API_KEY not set — skipping AI summaries.")
+        return "", {}
+
+    print("  → Generating AI summaries via Gemini…")
+
+    # Build a numbered item list for the prompt
+    rows = list(df_new.itertuples(index=False))
+    numbered = []
+    for i, row in enumerate(rows, start=1):
+        snippet = (getattr(row, "snippet", "") or "")[:250]
+        numbered.append(
+            f'{i}. [{row.category}] "{row.title}" — {row.org}. {snippet}'
+        )
+
+    prompt = (
+        f"You are a senior ESG analyst. Below are {len(rows)} new ESG / sustainability "
+        "intelligence items collected in today's automated digest.\n\n"
+        + "\n".join(numbered)
+        + "\n\n"
+        "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
+        "{\n"
+        '  "digest_summary": "2-3 sentence overview of the most important cross-cutting themes today",\n'
+        '  "article_summaries": {\n'
+        '    "1": "one crisp sentence summarising item 1",\n'
+        '    "2": "one crisp sentence summarising item 2"\n'
+        "  }\n"
+        "}"
+    )
+
+    try:
+        client = _genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+        )
+        raw = response.text.strip()
+        # Strip accidental markdown fences
+        raw = re.sub(r"^```(?:json)?", "", raw).strip()
+        raw = re.sub(r"```$", "", raw).strip()
+        data = json.loads(raw)
+    except Exception as exc:
+        print(f"  ⚠  AI summary failed: {exc}")
+        return "", {}
+
+    digest_summary = data.get("digest_summary", "")
+    article_summaries = data.get("article_summaries", {})
+
+    uid_summaries: dict[str, str] = {}
+    for str_idx, summary in article_summaries.items():
+        try:
+            idx = int(str_idx) - 1
+            if 0 <= idx < len(rows):
+                uid_summaries[rows[idx].uid] = summary
+        except (ValueError, IndexError):
+            pass
+
+    print(f"    ✓ AI summaries generated ({len(uid_summaries)} article(s) + digest)")
+    return digest_summary, uid_summaries
+
+
+# ==========================================
 # 8. EMAIL HTML BUILDER  (Outlook-safe table layout)
 # ==========================================
 #
@@ -1305,7 +1412,7 @@ def render_summary_bar(df: pd.DataFrame) -> str:
     )
 
 
-def render_article_card(row: pd.Series, cfg: dict) -> str:
+def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
     date_part = (
         f'<span style="color:#94a3b8;font-size:11px;{_FONT}">{row["date"]}</span>'
         " &nbsp;&middot;&nbsp; "
@@ -1315,6 +1422,12 @@ def render_article_card(row: pd.Series, cfg: dict) -> str:
         f'<p style="color:#64748b;font-size:12px;margin:5px 0 0 0;line-height:1.6;{_FONT}">'
         f'{row["snippet"]}</p>'
         if row.get("snippet") else ""
+    )
+    ai_part = (
+        f'<p style="color:#0f5132;font-size:12px;margin:5px 0 0 0;line-height:1.5;'
+        f'background:#d1fae5;padding:4px 8px;{_FONT}">'
+        f'&#x1F916; <strong>AI:</strong> {ai_summary}</p>'
+        if ai_summary else ""
     )
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
@@ -1337,6 +1450,7 @@ def render_article_card(row: pd.Series, cfg: dict) -> str:
         f'<p style="margin:3px 0 0 0;font-size:11px;color:#94a3b8;{_FONT}">'
         f'{date_part}{row["org"]}</p>'
         f"{snippet_part}"
+        f"{ai_part}"
         "</td>"
 
         "</tr></table>"
@@ -1345,8 +1459,10 @@ def render_article_card(row: pd.Series, cfg: dict) -> str:
 
 
 def render_category_section(
-    df: pd.DataFrame, category: str, cfg: dict, always_show: bool = False
+    df: pd.DataFrame, category: str, cfg: dict,
+    always_show: bool = False, uid_summaries: dict | None = None
 ) -> str:
+    uid_summaries = uid_summaries or {}
     cat_df = df[df["category"] == category]
     n = len(cat_df)
     count_label = f'({n} item{"s" if n != 1 else ""})'
@@ -1362,7 +1478,10 @@ def render_category_section(
             "</p></td></tr></table>"
         )
     else:
-        cards = "".join(render_article_card(row, cfg) for _, row in cat_df.iterrows())
+        cards = "".join(
+            render_article_card(row, cfg, ai_summary=uid_summaries.get(row["uid"], ""))
+            for _, row in cat_df.iterrows()
+        )
 
     return (
         f'<table width="100%" cellspacing="0" cellpadding="0" border="0" '
@@ -1395,7 +1514,30 @@ def render_footer() -> str:
     )
 
 
+def render_ai_digest_block(digest_summary: str) -> str:
+    """Teal highlight block shown between the summary bar and the category sections."""
+    if not digest_summary:
+        return ""
+    return (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0" '
+        'style="margin-bottom:12px;">'
+        '<tr><td bgcolor="#ecfdf5" style="background:#ecfdf5;padding:14px 20px;'
+        'border-left:4px solid #059669;">'
+        f'<p style="margin:0 0 4px 0;font-size:11px;font-weight:700;'
+        f'color:#065f46;text-transform:uppercase;letter-spacing:.05em;{_FONT}">'
+        "&#x1F916;&nbsp; AI Digest — Today&#x2019;s Key Themes"
+        "</p>"
+        f'<p style="margin:0;font-size:13px;color:#1e3a5f;line-height:1.7;{_FONT}">'
+        f"{digest_summary}"
+        "</p>"
+        "</td></tr></table>"
+    )
+
+
 def build_email(df_new: pd.DataFrame) -> str:
+    # ── AI summaries (single API call for the whole digest) ───────────────────
+    digest_summary, uid_summaries = generate_ai_summaries(df_new)
+
     if df_new.empty:
         content = (
             '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
@@ -1407,17 +1549,20 @@ def build_email(df_new: pd.DataFrame) -> str:
             "</p></td></tr></table>"
         )
         summary_html = ""
+        ai_digest_html = ""
     else:
         content = "".join(
             render_category_section(
                 df_new, cat, cfg,
                 always_show=(cat in ("Regulatory", "Tenders")),
+                uid_summaries=uid_summaries,
             )
             for cat, cfg in CATEGORY_STYLE.items()
         )
         summary_html = render_summary_bar(df_new)
+        ai_digest_html = render_ai_digest_block(digest_summary)
 
-    inner = render_header(len(df_new)) + summary_html + content + render_footer()
+    inner = render_header(len(df_new)) + summary_html + ai_digest_html + content + render_footer()
 
     # MSO conditional comment centres the email in Outlook desktop (which ignores
     # max-width + margin:auto on divs).  Non-Outlook clients use the div instead.
