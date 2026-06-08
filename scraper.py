@@ -1415,10 +1415,12 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
                     "responseMimeType": "application/json",
-                    # Enough headroom for 20 items × ~120 words each + digest + JSON
-                    # overhead. Without this the default cap (2048 tokens) truncates
-                    # mid-JSON when the digest is large, causing a silent parse failure.
-                    "maxOutputTokens": 8192,
+                    # 32768 gives safe headroom for 60-70 word summaries across
+                    # up to 80+ articles (≈ 6000 words of summary content).
+                    # The old 8192 cap was fine for shorter 1-sentence summaries
+                    # but overflows with 60-70 word targets on busy days,
+                    # causing finishReason=MAX_TOKENS and silently dropping all summaries.
+                    "maxOutputTokens": 32768,
                 },
             },
             timeout=120,   # longer timeout to match larger output generation time
@@ -1428,21 +1430,36 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         payload = resp.json()
 
         # Guard against truncated output: Gemini sets finishReason="MAX_TOKENS"
-        # when it hits the output cap. Even with maxOutputTokens=8192 this can
-        # happen if the digest is unusually large.
+        # when it hits the output cap. 60-70 word summaries across 30-60 articles
+        # can easily push output past a low token cap, so we use 32768.
         candidate = payload["candidates"][0]
         finish_reason = candidate.get("finishReason", "")
         if finish_reason == "MAX_TOKENS":
             print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
-                  f"response may be truncated. Skipping AI summaries.")
+                  f"response is truncated. Skipping AI summaries.")
             return "", {}, set()
 
         raw = candidate["content"]["parts"][0]["text"].strip()
         print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
-        data = json.loads(raw)
+
+        # Strip markdown code fences — some Gemini model versions wrap the JSON
+        # in ```json ... ``` even when responseMimeType is set to application/json.
+        # This causes json.loads to raise JSONDecodeError and silently drops all
+        # summaries. Strip fences defensively before parsing.
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+            raw = raw.strip()
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as json_err:
+            print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
+            print(f"     Raw response snippet: {raw[:500]}")
+            return "", {}, set()
     except Exception as exc:
         import traceback
-        print(f"  ⚠  AI summary failed: {exc}")
+        print(f"  ⚠  AI summary — API call failed: {exc}")
         traceback.print_exc()
         return "", {}, set()
 
