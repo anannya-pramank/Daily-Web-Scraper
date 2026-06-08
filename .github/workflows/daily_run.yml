@@ -1,41 +1,34 @@
 name: ESG Intelligence Daily Sweep
-
 on:
   schedule:
     # 09:00 AM IST = 03:30 AM UTC
     - cron: '30 3 * * *'
   workflow_dispatch:
-
 jobs:
   sweep:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
-
       - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
       - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright
-
+          pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright google-genai
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('**/daily_run.yml') }}
-
       - name: Install Playwright browsers
         run: playwright install chromium --with-deps
-
       - name: Run ESG Scraper
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python scraper.py
-
       - name: Persist History & Email Archive
         run: |
           git config --local user.email "actions@github.com"
