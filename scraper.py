@@ -1580,25 +1580,23 @@ CATEGORY_STYLE = {
         "badge_bg":  "#7b1d1d",
         "badge_fg":  "#fff8e7",
         "border":    _GOLD,
-        "icon":      "⚖",
     },
     "Tenders": {
         "header_bg": _NAVY_MED,
         "badge_bg":  "#163870",
         "badge_fg":  "#dceeff",
         "border":    _GOLD,
-        "icon":      "📋",
     },
     "ESG News": {
         "header_bg": _TEAL_DARK,
         "badge_bg":  "#0a4f28",
         "badge_fg":  "#d4f7e3",
         "border":    _GOLD,
-        "icon":      "📰",
     },
 }
 
-_FONT = "font-family:Arial,Helvetica,sans-serif;"
+_FONT  = "font-family:Arial,Helvetica,sans-serif;"
+_SERIF = "font-family:Georgia,'Times New Roman',serif;"
 
 
 def render_header(count: int) -> str:
@@ -1607,12 +1605,13 @@ def render_header(count: int) -> str:
         # Gold top accent stripe
         f'<tr><td height="5" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td></tr>'
         # Main header
-        f'<tr><td bgcolor="{_NAVY}" style="background:{_NAVY};padding:24px 28px 20px 28px;">'
-        f'<p style="margin:0 0 6px 0;font-size:22px;font-weight:700;color:#ffffff;'
-        f'letter-spacing:0.01em;{_FONT}">'
-        "ESG Intelligence Digest"
+        f'<tr><td bgcolor="{_NAVY}" style="background:{_NAVY};padding:26px 32px 22px 32px;">'
+        f'<p style="margin:0 0 7px 0;font-size:28px;font-weight:700;color:#ffffff;'
+        f'letter-spacing:0.12em;{_FONT}">'
+        "ESG DIGEST"
         "</p>"
-        f'<p style="margin:0;font-size:12px;color:{_GOLD};letter-spacing:0.04em;{_FONT}">'
+        f'<p style="margin:0;font-size:13px;color:{_GOLD};letter-spacing:0.06em;'
+        f'text-transform:uppercase;{_FONT}">'
         f"{TODAY_STR}&nbsp;&nbsp;&middot;&nbsp;&nbsp;"
         f'{count} new item{"s" if count != 1 else ""} identified today'
         "</p>"
@@ -1621,7 +1620,11 @@ def render_header(count: int) -> str:
 
 
 def render_summary_bar(df: pd.DataFrame) -> str:
-    cells = []
+    cells = [
+        f'<td style="padding:0 12px 0 0;">'
+        f'<span style="font-size:11px;color:{_MUTED};letter-spacing:0.07em;'
+        f'text-transform:uppercase;{_FONT}">Today</span></td>'
+    ]
     for cat, cfg in CATEGORY_STYLE.items():
         n = len(df[df["category"] == cat])
         if n:
@@ -1630,14 +1633,14 @@ def render_summary_bar(df: pd.DataFrame) -> str:
             pill_bg, pill_fg, pill_w = "#c5cdd9", "#6b7a8d", ""
         cells.append(
             f'<td style="padding:0 10px 0 0;">'
-            f'<span style="background:{pill_bg};color:{pill_fg};font-size:11px;'
-            f'{pill_w}padding:4px 13px;display:inline-block;{_FONT}">'
-            f'{cfg["icon"]}&nbsp; {n}&nbsp;{cat}'
+            f'<span style="background:{pill_bg};color:{pill_fg};font-size:12px;'
+            f'{pill_w}padding:4px 14px;display:inline-block;{_FONT}">'
+            f'{n}&nbsp;{cat}'
             "</span></td>"
         )
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        f'<tr><td bgcolor="{_WHITE}" style="background:{_WHITE};padding:12px 24px;'
+        f'<tr><td bgcolor="{_WHITE}" style="background:{_WHITE};padding:11px 28px;'
         f'border-bottom:2px solid {_GOLD};">'
         f'<table cellspacing="0" cellpadding="0" border="0"><tr>{"".join(cells)}</tr></table>'
         "</td></tr></table>"
@@ -1645,55 +1648,73 @@ def render_summary_bar(df: pd.DataFrame) -> str:
 
 
 def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
+    # Keyword tag pill — sits above title in a horizontal row
+    tag_pill = (
+        f'<span style="background:{cfg["badge_bg"]};color:{cfg["badge_fg"]};'
+        f'font-size:11px;font-weight:700;padding:3px 10px;display:inline-block;'
+        f'letter-spacing:0.04em;text-transform:uppercase;{_FONT}">'
+        f'{row["keyword"]}</span>'
+    )
+    tag_row = (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:9px;">'
+        f'<tr><td>{tag_pill}</td></tr></table>'
+    )
+
+    # Meta line: date · **source** (source bold and slightly darker)
     date_part = (
-        f'<span style="color:{_MUTED};font-size:11px;{_FONT}">{row["date"]}</span>'
+        f'<span style="color:{_MUTED};font-size:12px;{_FONT}">{row["date"]}</span>'
         "&nbsp;&middot;&nbsp;"
         if row.get("date") else ""
     )
+    meta_line = (
+        f'<p style="margin:5px 0 7px 0;font-size:12px;color:{_MUTED};{_FONT}">'
+        f'{date_part}'
+        f'<strong style="color:{_SNIP};font-weight:700;{_FONT}">{row["org"]}</strong>'
+        "</p>"
+    )
+
     snippet_part = (
-        f'<p style="color:{_SNIP};font-size:12px;margin:5px 0 0 0;line-height:1.65;{_FONT}">'
+        f'<p style="color:{_SNIP};font-size:14px;margin:0 0 10px 0;line-height:1.7;{_SERIF}">'
         f'{row["snippet"]}</p>'
         if row.get("snippet") else ""
     )
-    # AI summary — light gold inset block; no border-left (Outlook ignores it)
-    ai_part = (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:7px;">'
+
+    # Overview block — "Overview" label replaces "AI:", Georgia serif body text
+    overview_part = (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
         "<tr>"
-        f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:6px 10px;">'
-        f'<p style="margin:0;font-size:12px;color:{_TEXT};line-height:1.6;{_FONT}">'
-        f'<strong style="color:{_NAVY};">&#x1F916; AI:</strong>&nbsp;{ai_summary}'
-        "</p></td></tr></table>"
+        f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:9px 12px;">'
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
+        # Label cell
+        '<td width="1" valign="top" style="padding-right:10px;white-space:nowrap;">'
+        f'<span style="font-size:11px;font-weight:700;color:{_NAVY};'
+        f'letter-spacing:0.07em;text-transform:uppercase;{_FONT}">Overview</span>'
+        "</td>"
+        # Body cell
+        '<td valign="top">'
+        f'<p style="margin:0;font-size:14px;color:{_TEXT};line-height:1.7;{_SERIF}">'
+        f'{ai_summary}'
+        "</p></td>"
+        "</tr></table>"
+        "</td></tr></table>"
         if ai_summary else ""
     )
+
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
         "<tr>"
-        # Gold left accent bar — Outlook-safe coloured <td> instead of CSS border-left
+        # Gold left accent bar
         f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
-        # Card body
-        f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:13px 18px 12px 14px;'
+        # Card body — full width, tags + title + meta + snippet + overview all at same indent
+        f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:14px 18px 13px 16px;'
         f'border-bottom:1px solid {_DIVIDER};">'
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
-
-        # Keyword badge
-        '<td width="1" valign="top" style="padding-right:10px;white-space:nowrap;">'
-        f'<span style="background:{cfg["badge_bg"]};color:{cfg["badge_fg"]};'
-        f'font-size:10px;font-weight:700;padding:2px 9px;display:inline-block;{_FONT}">'
-        f'{row["keyword"]}</span>'
-        "</td>"
-
-        # Title + meta
-        '<td valign="top">'
+        f'{tag_row}'
         f'<a href="{row["article_url"]}" style="color:{_NAVY};font-weight:700;'
-        f'font-size:13px;text-decoration:none;line-height:1.5;display:block;{_FONT}">'
+        f'font-size:15px;text-decoration:none;line-height:1.45;display:block;{_FONT}">'
         f'{row["title"]}</a>'
-        f'<p style="margin:3px 0 0 0;font-size:11px;color:{_MUTED};{_FONT}">'
-        f'{date_part}{row["org"]}</p>'
-        f"{snippet_part}"
-        f"{ai_part}"
-        "</td>"
-
-        "</tr></table>"
+        f'{meta_line}'
+        f'{snippet_part}'
+        f'{overview_part}'
         "</td>"
         "</tr></table>"
     )
@@ -1715,9 +1736,9 @@ def render_category_section(
             '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
             "<tr>"
             f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
-            f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:13px 18px;">'
-            f'<p style="margin:0;font-size:12px;color:{_MUTED};font-style:italic;{_FONT}">'
-            f"&#10003;&nbsp; No new {category} items today."
+            f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:14px 18px;">'
+            f'<p style="margin:0;font-size:13px;color:{_MUTED};font-style:italic;{_FONT}">'
+            f"No new {category} items today."
             "</p></td></tr></table>"
         )
     else:
@@ -1737,8 +1758,9 @@ def render_category_section(
         # Gold left bar inside header
         f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;">&nbsp;</td>'
         '<td style="padding-left:10px;">'
-        f'<span style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.04em;{_FONT}">'
-        f'{cfg["icon"]}&nbsp; {category.upper()}&nbsp;'
+        f'<span style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.07em;'
+        f'text-transform:uppercase;{_FONT}">'
+        f'{category}&nbsp;'
         f'<span style="font-weight:400;font-size:11px;color:{_GOLD};">{count_label}</span>'
         "</span>"
         "</td></tr></table>"
@@ -1754,12 +1776,9 @@ def render_category_section(
 def render_footer() -> str:
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        # Gold top accent before footer
         f'<tr><td height="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td></tr>'
-        f'<tr><td bgcolor="{_NAVY}" style="background:{_NAVY};padding:14px 24px;text-align:center;">'
-        f'<p style="font-size:10px;color:{_GOLD};margin:0 0 3px 0;font-weight:700;'
-        f'letter-spacing:0.08em;{_FONT}">ESG INTELLIGENCE SYSTEM</p>'
-        f'<p style="font-size:10px;color:#7a8a9e;margin:0;{_FONT}">'
+        f'<tr><td bgcolor="{_NAVY}" style="background:{_NAVY};padding:13px 24px;text-align:center;">'
+        f'<p style="font-size:11px;color:{_MUTED};margin:0;{_FONT}">'
         "All links go directly to source articles&nbsp;&middot;&nbsp;"
         "Historical duplicates auto-filtered"
         "</p></td></tr></table>"
@@ -1767,22 +1786,21 @@ def render_footer() -> str:
 
 
 def render_ai_digest_block(digest_summary: str) -> str:
-    """Light gold block with Outlook-safe gold left bar (coloured <td>, not CSS border-left)."""
+    """Daily brief block — gold left bar, Georgia serif body, no emoji."""
     if not digest_summary:
         return ""
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0" '
         'style="margin-bottom:6px;">'
         "<tr>"
-        # Gold left bar — td width trick, renders in Outlook
         f'<td width="4" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
-        f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:14px 20px;">'
-        f'<p style="margin:0 0 5px 0;font-size:10px;font-weight:700;color:{_NAVY};'
-        f'text-transform:uppercase;letter-spacing:0.08em;{_FONT}">'
-        "&#x1F916;&nbsp; AI Digest &mdash; Today&#x2019;s Key Themes"
+        f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:16px 20px;">'
+        f'<p style="margin:0 0 7px 0;font-size:11px;font-weight:700;color:{_MUTED};'
+        f'text-transform:uppercase;letter-spacing:0.09em;{_FONT}">'
+        "Daily Brief"
         "</p>"
-        f'<p style="margin:0;font-size:13px;color:{_TEXT};line-height:1.75;{_FONT}">'
-        f"{digest_summary}"
+        f'<p style="margin:0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
+        f"Good morning. {digest_summary}"
         "</p>"
         "</td>"
         "</tr></table>"
@@ -1807,8 +1825,8 @@ def build_email(df_new: pd.DataFrame) -> str:
             "<tr>"
             f'<td width="4" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
             f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:20px 18px;">'
-            f'<p style="color:{_TEXT};font-size:13px;margin:0;line-height:1.6;{_FONT}">'
-            "&#10003;&nbsp; Daily scan completed &mdash; no new matching items found today. "
+            f'<p style="color:{_TEXT};font-size:14px;margin:0;line-height:1.7;{_SERIF}">'
+            "Daily scan completed &mdash; no new matching items found today. "
             "All sources are up to date."
             "</p></td></tr></table>"
         )
@@ -1836,7 +1854,7 @@ def build_email(df_new: pd.DataFrame) -> str:
         '<meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta http-equiv="X-UA-Compatible" content="IE=edge">'
-        "<title>ESG Intelligence Digest</title>"
+        "<title>ESG Digest</title>"
         "</head>"
         '<body style="margin:0;padding:0;background:#eef0f5;">'
 
