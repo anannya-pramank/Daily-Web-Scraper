@@ -1265,7 +1265,7 @@ if not df_new.empty:
 
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-1.5-flash:generateContent"
+    "gemini-3.5-flash:generateContent"
 )
 
 def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
