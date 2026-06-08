@@ -158,6 +158,19 @@ SEBI_KEYWORDS = [
     "TCFD", "GRI", "ISSB", "IFRS S",
 ]
 
+# Tighter keyword set for PIB India — strips broad terms ("Sustainability", "Climate Change")
+# that catch generic govt press releases (zoo apps, environment-day ceremonies, etc.).
+# Only retains signals that directly imply a regulatory, policy, or compliance development.
+PIB_INDIA_KEYWORDS = [
+    "BRSR", "BRSR Core", "ESG Disclosure", "ESG Reporting", "ESG Framework", "ESG",
+    "Green Bond", "Sustainability Bond", "Social Bond", "Green Finance",
+    "Carbon Credit", "Carbon Market", "Carbon Trading", "Carbon Tax", "Carbon Neutral",
+    "Carbon Offset", "Net Zero", "Carbon Footprint", "Emissions Trading", "GHG",
+    "Scope 1", "Scope 2", "Scope 3", "Climate Finance", "Renewable Energy",
+    "Energy Transition", "Circular Economy", "Extended Producer Responsibility", "EPR",
+    "CBAM", "Paris Agreement", "Greenwashing", "Green Hydrogen", "Carbon Sequestration",
+]
+
 # Each source: org name, homepage URL, RSS feed URL (or None), keywords, category, parser type
 SOURCES = [
     # ── Tenders ──────────────────────────────────────────────────────────────
@@ -359,7 +372,7 @@ SOURCES = [
             "?q=site:pib.gov.in+ESG+OR+sustainability+OR+climate+OR+carbon"
             "&hl=en-IN&gl=IN&ceid=IN:en"
         ),
-        "keywords": REALTIME_KEYWORDS,
+        "keywords": PIB_INDIA_KEYWORDS,
         "category": "ESG News",
         "parser": "rss_news",
     },
@@ -547,6 +560,16 @@ def parse_rss(source: dict) -> list[dict]:
             # Skip items older than NEWS_LOOKBACK_DAYS
             dt = parse_fuzzy_date(pub_date)
             if dt and dt < NEWS_CUTOFF:
+                continue
+
+            # Skip event-calendar entries: detected by two "@HH:MM am/pm" patterns
+            # (start time + end time) which are the hallmark of calendar listings rather
+            # than news articles.  Avoids "London Climate Action Week @ 8:00 am" style entries.
+            _combined = f"{title} {summary}"
+            if re.search(
+                r'@\s*\d{1,2}:\d{2}\s*(?:am|pm).{0,80}@\s*\d{1,2}:\d{2}\s*(?:am|pm)',
+                _combined, re.IGNORECASE
+            ):
                 continue
 
             check = f"{title} {summary}"
@@ -1294,32 +1317,49 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         )
 
     prompt = (
-        "You are a senior ESG legal analyst advising corporate counsel and compliance teams "
-        "at large Indian and multinational corporations.\n\n"
-        f"Below are {len(rows)} new ESG / sustainability intelligence items from today's digest:\n\n"
+        "You are a senior ESG legal analyst preparing a daily intelligence digest for "
+        "in-house counsel and compliance officers at large Indian and multinational corporations. "
+        "Your readers are tier-1 legal professionals — they need precision, not padding.\n\n"
+        f"Below are {len(rows)} items scraped today:\n\n"
         + "\n".join(numbered)
         + "\n\n"
-        "TASK 1 — digest_summary:\n"
-        "Write a 4-5 sentence executive briefing for a General Counsel or Chief Compliance Officer. "
-        "Cover the most significant cross-cutting regulatory and compliance developments, "
-        "flag any mandatory disclosure or filing obligations, and note near-term deadlines or enforcement risks.\n\n"
-        "TASK 2 — article_summaries:\n"
-        "For each numbered item write a TL;DR of up to 7 lines for a legal/compliance audience. "
-        "Follow this structure and skip any line where the source provides no relevant information:\n"
-        "Line 1: What happened or was announced.\n"
-        "Line 2: Which entities, sectors, or jurisdictions are affected.\n"
-        "Line 3: Specific compliance obligations triggered — cite the rule, framework, or standard by name.\n"
-        "Line 4: Key deadlines, effective dates, or phase-in timelines.\n"
-        "Line 5: Penalties, enforcement risks, or consequences of non-compliance.\n"
-        "Line 6: Immediate action points for compliance teams.\n"
-        "Line 7: Broader strategic or precedent-setting significance.\n"
-        "Use precise regulatory language. No filler phrases. Write each summary as flowing prose, not bullet points.\n\n"
+        "═══ STEP 1: TRIAGE each item into one of three tiers ═══\n"
+        "TIER 1 — High signal: regulatory change, enforcement action, new mandatory standard, "
+        "binding policy decision, or market development with direct and specific compliance "
+        "implications (e.g. new SEBI circular, CBAM update, CSRD implementation news).\n"
+        "TIER 2 — Medium signal: useful market or industry development worth monitoring but "
+        "without an immediate compliance obligation (e.g. voluntary benchmarks, industry "
+        "initiatives, company sustainability disclosures, impact investing updates).\n"
+        "TIER 3 — Low signal / exclude: conference/event announcements with no policy content, "
+        "generic thought-leadership, awards, ceremonial government events, or articles "
+        "with no actionable compliance relevance.\n\n"
+        "═══ STEP 2: SUMMARIES ═══\n"
+        "TIER 1 items → write a 5-6 line TL;DR:\n"
+        "  Line 1: What was announced, decided, or published.\n"
+        "  Line 2: Which entities, sectors, or jurisdictions are directly affected.\n"
+        "  Line 3: Specific compliance obligations triggered. CRITICAL: only cite a regulation, "
+        "framework, or standard if it is explicitly named or directly referenced in the source "
+        "text. Do not infer or speculate.\n"
+        "  Line 4: Deadlines, effective dates, or phase-in timelines (if stated).\n"
+        "  Line 5: Penalties or enforcement risk (only if stated in the source).\n"
+        "  Line 6: Recommended action for compliance teams.\n"
+        "TIER 2 items → write 2 sentences: what it is, and why compliance teams should monitor it.\n"
+        "TIER 3 items → set to null.\n\n"
+        "═══ STEP 3: DIGEST ═══\n"
+        "Write a 3-4 sentence executive briefing for a General Counsel covering TIER 1 items only. "
+        "Be specific: name the instruments, jurisdictions, and deadlines involved. "
+        "Do not pad with generic ESG commentary.\n\n"
+        "CRITICAL RULES:\n"
+        "• Never cite a regulation, framework, or penalty figure that is not explicitly supported "
+        "by the source text. If the source is thin, keep the summary short — do not fabricate context.\n"
+        "• Write in plain declarative prose. No bullet points inside summaries.\n"
+        "• If an item is a TIER 3, its summary must be null (JSON null, not the string 'null').\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
         "{\n"
         '  "digest_summary": "...",\n'
         '  "article_summaries": {\n'
-        '    "1": "...",\n'
-        '    "2": "..."\n'
+        '    "1": "..." or null,\n'
+        '    "2": "..." or null\n'
         "  }\n"
         "}"
     )
@@ -1353,7 +1393,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
     for str_idx, summary in article_summaries.items():
         try:
             idx = int(str_idx) - 1
-            if 0 <= idx < len(rows):
+            if 0 <= idx < len(rows) and summary:  # skip null/empty (Tier 3 exclusions)
                 uid_summaries[rows[idx].uid] = summary
         except (ValueError, IndexError):
             pass
