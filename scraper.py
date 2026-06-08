@@ -1311,14 +1311,17 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=prompt,
+            config=_genai.types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
         )
         raw = response.text.strip()
-        # Strip accidental markdown fences
-        raw = re.sub(r"^```(?:json)?", "", raw).strip()
-        raw = re.sub(r"```$", "", raw).strip()
+        print(f"    [debug] Gemini raw response (first 300 chars): {raw[:300]}")
         data = json.loads(raw)
     except Exception as exc:
+        import traceback
         print(f"  ⚠  AI summary failed: {exc}")
+        traceback.print_exc()
         return "", {}
 
     digest_summary = data.get("digest_summary", "")
