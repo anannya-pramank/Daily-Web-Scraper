@@ -9,15 +9,11 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin
 from email.utils import parsedate_to_datetime
 
-try:
-    from google import genai as _genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
+# Gemini is called via the REST API using requests — no SDK needed
+GEMINI_AVAILABLE = True
 
 # ── Gemini availability banner (always visible in Actions log) ────────────────
-print(f"[GEMINI] package available : {GEMINI_AVAILABLE}")
-print(f"[GEMINI] API key set       : {bool(os.environ.get('GEMINI_API_KEY', ''))}")
+print(f"[GEMINI] API key set: {bool(os.environ.get('GEMINI_API_KEY', ''))}")
 
 try:
     import feedparser
@@ -1252,11 +1248,11 @@ if not df_new.empty:
     )
 
 # ==========================================
-# 7.5  AI DIGEST SUMMARY  (Gemini via Google GenAI API)
+# 7.5  AI DIGEST SUMMARY  (Gemini REST API via requests)
 # ==========================================
 #
-# Requires:  pip install google-genai
-# API key:   set GEMINI_API_KEY environment variable before running.
+# No SDK needed — uses the Gemini v1beta REST API directly via requests.
+# API key:   set GEMINI_API_KEY environment variable (GitHub Secret).
 #
 # Generates two things in a single API call:
 #   • digest_summary  – 2-3 sentence overview of today's most significant themes,
@@ -1264,8 +1260,13 @@ if not df_new.empty:
 #   • article_summary – one crisp sentence per item, shown below the snippet in
 #                       each article card (labelled "🤖 AI Summary").
 #
-# Falls back gracefully (returns empty strings/dict) if the package is missing
-# or the API call fails, so the rest of the pipeline is never blocked.
+# Falls back gracefully (returns empty strings/dict) on any failure so the
+# email pipeline is never blocked.
+
+GEMINI_API_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "gemini-1.5-flash-latest:generateContent"
+)
 
 def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
     """
@@ -1273,10 +1274,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         digest_summary  : str   – overall theme paragraph (HTML-safe plain text)
         uid_summaries   : dict  – {uid: one_line_summary} for every row in df_new
     """
-    if df_new.empty or not GEMINI_AVAILABLE:
-        if not GEMINI_AVAILABLE:
-            print("  ⚠  google-genai package not installed — skipping AI summaries.")
-            print("     Install with:  pip install google-genai")
+    if df_new.empty:
         return "", {}
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -1284,7 +1282,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         print("  ⚠  GEMINI_API_KEY not set — skipping AI summaries.")
         return "", {}
 
-    print("  → Generating AI summaries via Gemini…")
+    print("  → Generating AI summaries via Gemini REST API…")
 
     # Build a numbered item list for the prompt
     rows = list(df_new.itertuples(index=False))
@@ -1311,15 +1309,19 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
     )
 
     try:
-        client = _genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt,
-            config=_genai.types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
+        resp = requests.post(
+            GEMINI_API_URL,
+            params={"key": api_key},
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"responseMimeType": "application/json"},
+            },
+            timeout=60,
         )
-        raw = response.text.strip()
+        print(f"    [GEMINI] HTTP status: {resp.status_code}")
+        resp.raise_for_status()
+        payload = resp.json()
+        raw = payload["candidates"][0]["content"]["parts"][0]["text"].strip()
         print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
         data = json.loads(raw)
     except Exception as exc:
