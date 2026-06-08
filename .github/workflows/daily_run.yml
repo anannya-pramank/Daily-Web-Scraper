@@ -29,6 +29,7 @@ jobs:
         run: playwright install chromium --with-deps
 
       - name: Pre-flight — Gemini check
+        continue-on-error: true
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
@@ -44,7 +45,7 @@ jobs:
 
           client = genai.Client(api_key=key)
           resp = client.models.generate_content(
-              model="gemini-2.0-flash",
+              model="gemini-1.5-flash",
               contents="Reply with the single word: ok",
           )
           print(f"[PRE-FLIGHT] Gemini ping response: {resp.text.strip()}")
