@@ -15,6 +15,10 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
+# ── Gemini availability banner (always visible in Actions log) ────────────────
+print(f"[GEMINI] package available : {GEMINI_AVAILABLE}")
+print(f"[GEMINI] API key set       : {bool(os.environ.get('GEMINI_API_KEY', ''))}")
+
 try:
     import feedparser
     FEEDPARSER_AVAILABLE = True
@@ -1316,7 +1320,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
             ),
         )
         raw = response.text.strip()
-        print(f"    [debug] Gemini raw response (first 300 chars): {raw[:300]}")
+        print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
         data = json.loads(raw)
     except Exception as exc:
         import traceback
