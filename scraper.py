@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import hashlib
 import requests
 import pandas as pd
@@ -1407,60 +1408,93 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         "}"
     )
 
-    try:
-        resp = requests.post(
-            GEMINI_API_URL,
-            params={"key": api_key},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    # 32768 gives safe headroom for 60-70 word summaries across
-                    # up to 80+ articles (≈ 6000 words of summary content).
-                    # The old 8192 cap was fine for shorter 1-sentence summaries
-                    # but overflows with 60-70 word targets on busy days,
-                    # causing finishReason=MAX_TOKENS and silently dropping all summaries.
-                    "maxOutputTokens": 32768,
-                },
-            },
-            timeout=120,   # longer timeout to match larger output generation time
-        )
-        print(f"    [GEMINI] HTTP status: {resp.status_code}")
-        resp.raise_for_status()
-        payload = resp.json()
+    # Retry loop: 503 (overloaded) and 429 (rate-limited) are transient.
+    # Back off exponentially: 15 s → 30 s → 60 s before giving up.
+    MAX_RETRIES = 3
+    RETRY_DELAYS = [15, 30, 60]   # seconds between attempts
+    RETRYABLE_CODES = {429, 500, 503}
 
-        # Guard against truncated output: Gemini sets finishReason="MAX_TOKENS"
-        # when it hits the output cap. 60-70 word summaries across 30-60 articles
-        # can easily push output past a low token cap, so we use 32768.
-        candidate = payload["candidates"][0]
-        finish_reason = candidate.get("finishReason", "")
-        if finish_reason == "MAX_TOKENS":
-            print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
-                  f"response is truncated. Skipping AI summaries.")
-            return "", {}, set()
-
-        raw = candidate["content"]["parts"][0]["text"].strip()
-        print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
-
-        # Strip markdown code fences — some Gemini model versions wrap the JSON
-        # in ```json ... ``` even when responseMimeType is set to application/json.
-        # This causes json.loads to raise JSONDecodeError and silently drops all
-        # summaries. Strip fences defensively before parsing.
-        if raw.startswith("```"):
-            raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw)
-            raw = raw.strip()
-
+    data = None
+    for attempt in range(1, MAX_RETRIES + 1):
         try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as json_err:
-            print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
-            print(f"     Raw response snippet: {raw[:500]}")
+            resp = requests.post(
+                GEMINI_API_URL,
+                params={"key": api_key},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        # 32768 gives safe headroom for 60-70 word summaries across
+                        # up to 80+ articles (≈ 6000 words of summary content).
+                        # The old 8192 cap was fine for shorter 1-sentence summaries
+                        # but overflows with 60-70 word targets on busy days,
+                        # causing finishReason=MAX_TOKENS and silently dropping all summaries.
+                        "maxOutputTokens": 32768,
+                    },
+                },
+                timeout=120,
+            )
+            print(f"    [GEMINI] attempt {attempt}/{MAX_RETRIES} — HTTP {resp.status_code}")
+
+            # Retryable server-side errors (overloaded / rate-limited)
+            if resp.status_code in RETRYABLE_CODES and attempt < MAX_RETRIES:
+                delay = RETRY_DELAYS[attempt - 1]
+                print(f"    [GEMINI] {resp.status_code} received — retrying in {delay}s…")
+                time.sleep(delay)
+                continue
+
+            resp.raise_for_status()
+            payload = resp.json()
+
+            # Guard against truncated output: Gemini sets finishReason="MAX_TOKENS"
+            # when it hits the output cap. 60-70 word summaries across 30-60 articles
+            # can push output past a low token cap, so we use 32768.
+            candidate = payload["candidates"][0]
+            finish_reason = candidate.get("finishReason", "")
+            if finish_reason == "MAX_TOKENS":
+                print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
+                      f"response is truncated. Skipping AI summaries.")
+                return "", {}, set()
+
+            raw = candidate["content"]["parts"][0]["text"].strip()
+            print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
+
+            # Strip markdown code fences — some Gemini model versions wrap the JSON
+            # in ```json ... ``` even when responseMimeType is set to application/json.
+            # This causes json.loads to raise JSONDecodeError and silently drops all
+            # summaries. Strip fences defensively before parsing.
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
+                raw = re.sub(r"\s*```$", "", raw)
+                raw = raw.strip()
+
+            try:
+                data = json.loads(raw)
+                break   # success — exit retry loop
+            except json.JSONDecodeError as json_err:
+                print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
+                print(f"     Raw response snippet: {raw[:500]}")
+                return "", {}, set()
+
+        except requests.exceptions.RequestException as req_err:
+            if attempt < MAX_RETRIES:
+                delay = RETRY_DELAYS[attempt - 1]
+                print(f"    [GEMINI] request error on attempt {attempt}: {req_err} — retrying in {delay}s…")
+                time.sleep(delay)
+            else:
+                import traceback
+                print(f"  ⚠  AI summary — API call failed after {MAX_RETRIES} attempts: {req_err}")
+                traceback.print_exc()
+                return "", {}, set()
+
+        except Exception as exc:
+            import traceback
+            print(f"  ⚠  AI summary — unexpected error: {exc}")
+            traceback.print_exc()
             return "", {}, set()
-    except Exception as exc:
-        import traceback
-        print(f"  ⚠  AI summary — API call failed: {exc}")
-        traceback.print_exc()
+
+    if data is None:
+        print("  ⚠  AI summary — all retry attempts exhausted. Skipping.")
         return "", {}, set()
 
     digest_summary = data.get("digest_summary", "")
