@@ -1413,14 +1413,31 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
             params={"key": api_key},
             json={
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json"},
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    # Enough headroom for 20 items × ~120 words each + digest + JSON
+                    # overhead. Without this the default cap (2048 tokens) truncates
+                    # mid-JSON when the digest is large, causing a silent parse failure.
+                    "maxOutputTokens": 8192,
+                },
             },
-            timeout=60,
+            timeout=120,   # longer timeout to match larger output generation time
         )
         print(f"    [GEMINI] HTTP status: {resp.status_code}")
         resp.raise_for_status()
         payload = resp.json()
-        raw = payload["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        # Guard against truncated output: Gemini sets finishReason="MAX_TOKENS"
+        # when it hits the output cap. Even with maxOutputTokens=8192 this can
+        # happen if the digest is unusually large.
+        candidate = payload["candidates"][0]
+        finish_reason = candidate.get("finishReason", "")
+        if finish_reason == "MAX_TOKENS":
+            print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
+                  f"response may be truncated. Skipping AI summaries.")
+            return "", {}, set()
+
+        raw = candidate["content"]["parts"][0]["text"].strip()
         print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
         data = json.loads(raw)
     except Exception as exc:
