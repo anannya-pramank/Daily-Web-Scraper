@@ -1294,16 +1294,31 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         )
 
     prompt = (
-        f"You are a senior ESG analyst. Below are {len(rows)} new ESG / sustainability "
-        "intelligence items collected in today's automated digest.\n\n"
+        f"You are a senior ESG legal analyst advising corporate counsel and compliance teams "
+        f"at large Indian and multinational corporations. Below are {len(rows)} new ESG / "
+        "sustainability intelligence items collected in today's automated digest.\n\n"
         + "\n".join(numbered)
         + "\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
         "{\n"
-        '  "digest_summary": "2-3 sentence overview of the most important cross-cutting themes today",\n'
+        '  "digest_summary": "4-5 sentence executive briefing for a General Counsel or Chief '
+        'Compliance Officer covering the most significant regulatory, compliance, and market '
+        'developments today. Identify cross-cutting themes, flag any mandatory disclosure or '
+        'filing obligations, and note near-term deadlines or enforcement risks.",\n'
         '  "article_summaries": {\n'
-        '    "1": "one crisp sentence summarising item 1",\n'
-        '    "2": "one crisp sentence summarising item 2"\n'
+        '    "1": "6-7 line TL;DR for item 1 written for a legal/compliance audience. '
+        'Structure as follows — '
+        'Line 1: What happened or was announced (the core development). '
+        'Line 2: Which entities, sectors, or jurisdictions are affected. '
+        'Line 3: Specific regulatory or compliance obligations triggered (cite the rule, '
+        'framework, or standard by name where possible). '
+        'Line 4: Key deadlines, effective dates, or phase-in timelines. '
+        'Line 5: Penalties, enforcement risks, or consequences of non-compliance if stated. '
+        'Line 6: Immediate action points or watch items for compliance teams. '
+        'Line 7: Broader strategic or precedent-setting significance, if any. '
+        'Use precise regulatory language. Omit any line where the source provides no relevant '
+        'information rather than padding with generic statements.",\n'
+        '    "2": "6-7 line TL;DR for item 2 following the same structure"\n'
         "  }\n"
         "}"
     )
