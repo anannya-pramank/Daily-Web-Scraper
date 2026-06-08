@@ -34,8 +34,14 @@ HISTORY_PATH = "Historical_Matches.csv"
 RECENCY_DAYS = 60
 RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
 
-# Tighter window for ESG news articles in the daily digest — hard cap at 48 hours
-NEWS_CUTOFF = datetime.now(timezone.utc) - timedelta(hours=48)
+# Tighter window for ESG news articles in the daily digest.
+# 72 hours (3 days) covers the weekend gap: on Monday mornings, articles
+# published Friday–Saturday would be excluded by a 48h cutoff.
+NEWS_CUTOFF = datetime.now(timezone.utc) - timedelta(hours=72)
+
+# Max articles returned per source per run — prevents any single outlet from
+# flooding the digest and guarantees diversity across tracked sites.
+MAX_PER_SOURCE = 3
 
 
 def parse_fuzzy_date(text: str):
@@ -139,7 +145,19 @@ REALTIME_KEYWORDS = [
     "Bioenergy", "Biochar", "Biomass", "BECCS", "Methane", "Scope 1", "Scope 2", "Scope 3",
     "Assurance", "Assessment",
     "JCM", "EPR",
-    # ── Broad catch-alls (intentionally last) ───────────────────────────────
+    # ── Biomass & Bioenergy (explicit) ────────────────────────────────────────
+    "Biomass Energy", "Biomass Power", "Biomass Carbon", "Biomass Pellets",
+    "Biomass Gasification", "Forest Biomass", "Biomass Co-firing",
+    "Agricultural Residue", "Biofuel", "BECCS", "Bio-CCS", "Biomass", "RED III",
+    # ── Water (explicit additions) ────────────────────────────────────────────
+    "Water Credits", "Watershed", "CDP Water", "Groundwater", "Water Recycling",
+    # ── ESG Tech & Ratings (explicit) ─────────────────────────────────────────
+    "ESG Tech", "ESG SaaS", "ESG KPI", "Materiality Matrix", "ESG Benchmark",
+    "ESG Maturity", "Climate Fintech", "Green Fintech",
+    # ── Markets & Finance (explicit additions) ────────────────────────────────
+    "Nature Finance", "Single Use Plastic", "CCTS",
+    # ── Biodiversity (explicit additions) ────────────────────────────────────
+    "Wetlands", "Wildlife",
     "Sustainability", "Green Finance", "ESG", "Emissions", "Solar",
 ]
 
@@ -513,9 +531,13 @@ def parse_rss(source: dict) -> list[dict]:
     """
     Primary parser for all news/blog sites.
     Strategy:
-      1. Try primary RSS feed (direct site feed, browser UA).
-      2. If primary returns 0 entries, try rss_gnews (Google News RSS for the domain).
-      3. If both RSS paths fail, fall back to HTML scraping.
+      1. Try primary RSS feed (direct site feed, browser UA) — collect all keyword hits.
+      2. Also try rss_gnews (Google News RSS for the domain) in ALL cases — not just as
+         a fallback. Results are merged via a shared `seen` set so no article is doubled.
+         Google News often indexes articles from a longer window than the site's own feed,
+         adding coverage that primary RSS alone would miss.
+      3. Apply MAX_PER_SOURCE cap to prevent any single outlet flooding the digest.
+      4. If both RSS paths yield zero hits, fall back to HTML scraping.
     """
     hits, seen = [], set()
     keywords = source["keywords"]
@@ -581,32 +603,35 @@ def parse_rss(source: dict) -> list[dict]:
         return result
 
     # ─ Primary RSS ────────────────────────────────────────────────────────────
+    # Always collect from the primary RSS feed when available.
     rss_url = source.get("rss")
     if rss_url:
         feed = fetch_rss(rss_url)
         if feed and feed.entries:
-            hits = _process_feed(feed)
-            print(f"    ✓ primary RSS: {len(feed.entries)} entries → {len(hits)} match(es)")
-            if hits:
-                return hits
+            primary_hits = _process_feed(feed)   # updates shared `seen` set
+            hits.extend(primary_hits)
+            print(f"    ✓ primary RSS: {len(feed.entries)} entries → {len(primary_hits)} match(es)")
         else:
-            status = f"HTTP error or 0 entries"
-            print(f"    ⚠  primary RSS failed ({status}), trying fallback…")
+            print(f"    ⚠  primary RSS failed or 0 entries")
 
-    # ─ Google News RSS fallback ───────────────────────────────────────────────
+    # ─ Google News RSS — always try for additional coverage ───────────────────
+    # No longer a pure fallback: runs regardless of whether primary RSS succeeded.
+    # The shared `seen` set in _process_feed deduplicates across both passes,
+    # so only net-new articles are added. This surfaces articles that are in
+    # Google's index but may have dropped off the site's own RSS window.
     rss_gnews = source.get("rss_gnews")
-    if rss_gnews and not hits:
+    if rss_gnews:
         feed = fetch_rss(rss_gnews)
         if feed and feed.entries:
-            hits = _process_feed(feed)
-            print(f"    ✓ Google News RSS: {len(feed.entries)} entries → {len(hits)} match(es)")
-            if hits:
-                return hits
+            gnews_hits = _process_feed(feed)     # shared `seen` deduplicates
+            hits.extend(gnews_hits)
+            print(f"    ✓ Google News RSS: {len(feed.entries)} entries → {len(gnews_hits)} new match(es)")
         else:
-            print(f"    ⚠  Google News RSS also failed or empty")
+            print(f"    ⚠  Google News RSS also empty")
 
+    # Apply per-source cap: no single outlet dominates the digest.
     if hits:
-        return hits
+        return hits[:MAX_PER_SOURCE]
 
     # ─ HTML fallback ───────────────────────────────────────────────────────
     # Skip for Google News primary sources: their base_url is news.google.com,
@@ -654,7 +679,7 @@ def parse_rss(source: dict) -> list[dict]:
             date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) \
                       or container.find("time")
             raw_date = date_el.get_text(strip=True) if date_el else ""
-            # 48-hour gate: if a date is parseable and it's older than NEWS_CUTOFF, skip it.
+            # Recency gate: if a date is parseable and it's older than NEWS_CUTOFF, skip it.
             # Items with no extractable date are kept (age unknown).
             if raw_date:
                 item_dt = parse_fuzzy_date(raw_date)
@@ -686,7 +711,7 @@ def parse_rss(source: dict) -> list[dict]:
             date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)})
                        or context.find("time")) if context else None
             raw_date = date_el.get_text(strip=True) if date_el else ""
-            # 48-hour gate: same logic as container loop above
+            # Recency gate: same logic as container loop above
             if raw_date:
                 item_dt = parse_fuzzy_date(raw_date)
                 if item_dt and item_dt < NEWS_CUTOFF:
