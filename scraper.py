@@ -1288,37 +1288,38 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
     rows = list(df_new.itertuples(index=False))
     numbered = []
     for i, row in enumerate(rows, start=1):
-        snippet = (getattr(row, "snippet", "") or "")[:250]
+        snippet = (getattr(row, "snippet", "") or "")[:500]
         numbered.append(
             f'{i}. [{row.category}] "{row.title}" — {row.org}. {snippet}'
         )
 
     prompt = (
-        f"You are a senior ESG legal analyst advising corporate counsel and compliance teams "
-        f"at large Indian and multinational corporations. Below are {len(rows)} new ESG / "
-        "sustainability intelligence items collected in today's automated digest.\n\n"
+        "You are a senior ESG legal analyst advising corporate counsel and compliance teams "
+        "at large Indian and multinational corporations.\n\n"
+        f"Below are {len(rows)} new ESG / sustainability intelligence items from today's digest:\n\n"
         + "\n".join(numbered)
         + "\n\n"
+        "TASK 1 — digest_summary:\n"
+        "Write a 4-5 sentence executive briefing for a General Counsel or Chief Compliance Officer. "
+        "Cover the most significant cross-cutting regulatory and compliance developments, "
+        "flag any mandatory disclosure or filing obligations, and note near-term deadlines or enforcement risks.\n\n"
+        "TASK 2 — article_summaries:\n"
+        "For each numbered item write a TL;DR of up to 7 lines for a legal/compliance audience. "
+        "Follow this structure and skip any line where the source provides no relevant information:\n"
+        "Line 1: What happened or was announced.\n"
+        "Line 2: Which entities, sectors, or jurisdictions are affected.\n"
+        "Line 3: Specific compliance obligations triggered — cite the rule, framework, or standard by name.\n"
+        "Line 4: Key deadlines, effective dates, or phase-in timelines.\n"
+        "Line 5: Penalties, enforcement risks, or consequences of non-compliance.\n"
+        "Line 6: Immediate action points for compliance teams.\n"
+        "Line 7: Broader strategic or precedent-setting significance.\n"
+        "Use precise regulatory language. No filler phrases. Write each summary as flowing prose, not bullet points.\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
         "{\n"
-        '  "digest_summary": "4-5 sentence executive briefing for a General Counsel or Chief '
-        'Compliance Officer covering the most significant regulatory, compliance, and market '
-        'developments today. Identify cross-cutting themes, flag any mandatory disclosure or '
-        'filing obligations, and note near-term deadlines or enforcement risks.",\n'
+        '  "digest_summary": "...",\n'
         '  "article_summaries": {\n'
-        '    "1": "6-7 line TL;DR for item 1 written for a legal/compliance audience. '
-        'Structure as follows — '
-        'Line 1: What happened or was announced (the core development). '
-        'Line 2: Which entities, sectors, or jurisdictions are affected. '
-        'Line 3: Specific regulatory or compliance obligations triggered (cite the rule, '
-        'framework, or standard by name where possible). '
-        'Line 4: Key deadlines, effective dates, or phase-in timelines. '
-        'Line 5: Penalties, enforcement risks, or consequences of non-compliance if stated. '
-        'Line 6: Immediate action points or watch items for compliance teams. '
-        'Line 7: Broader strategic or precedent-setting significance, if any. '
-        'Use precise regulatory language. Omit any line where the source provides no relevant '
-        'information rather than padding with generic statements.",\n'
-        '    "2": "6-7 line TL;DR for item 2 following the same structure"\n'
+        '    "1": "...",\n'
+        '    "2": "..."\n'
         "  }\n"
         "}"
     )
