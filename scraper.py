@@ -1304,10 +1304,15 @@ if not df_new.empty:
 # Falls back gracefully (returns empty strings/dict) on any failure so the
 # email pipeline is never blocked.
 
-GEMINI_API_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-3.5-flash:generateContent"
-)
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
+
+# Primary model first, then fallbacks tried in order when the primary returns
+# 503/429/500 on every retry attempt.  Add or reorder as new models become available.
+GEMINI_MODELS = [
+    "gemini-2.5-flash",   # primary — latest stable Flash
+    "gemini-2.0-flash",   # first fallback
+    "gemini-1.5-flash",   # last-resort stable fallback
+]
 
 def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
     """
@@ -1408,93 +1413,108 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         "}"
     )
 
-    # Retry loop: 503 (overloaded) and 429 (rate-limited) are transient.
-    # Back off exponentially: 15 s → 30 s → 60 s before giving up.
-    MAX_RETRIES = 3
-    RETRY_DELAYS = [15, 30, 60]   # seconds between attempts
+    # Model + retry strategy:
+    #   • Try each model in GEMINI_MODELS in order.
+    #   • Per model: up to 2 retries (3 total attempts) on 503/429/500,
+    #     with a short backoff.  These are transient server-side errors.
+    #   • On persistent failure, move to the next model in the list.
+    #   • Only give up entirely once all models are exhausted.
     RETRYABLE_CODES = {429, 500, 503}
+    PER_MODEL_ATTEMPTS = 3
+    RETRY_DELAYS = [15, 30]   # seconds before attempt 2 and 3
 
     data = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            resp = requests.post(
-                GEMINI_API_URL,
-                params={"key": api_key},
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {
-                        "responseMimeType": "application/json",
-                        # 32768 gives safe headroom for 60-70 word summaries across
-                        # up to 80+ articles (≈ 6000 words of summary content).
-                        # The old 8192 cap was fine for shorter 1-sentence summaries
-                        # but overflows with 60-70 word targets on busy days,
-                        # causing finishReason=MAX_TOKENS and silently dropping all summaries.
-                        "maxOutputTokens": 32768,
-                    },
-                },
-                timeout=120,
-            )
-            print(f"    [GEMINI] attempt {attempt}/{MAX_RETRIES} — HTTP {resp.status_code}")
+    for model in GEMINI_MODELS:
+        api_url = f"{GEMINI_BASE_URL}{model}:generateContent"
+        print(f"    [GEMINI] trying model: {model}")
+        model_success = False
 
-            # Retryable server-side errors (overloaded / rate-limited)
-            if resp.status_code in RETRYABLE_CODES and attempt < MAX_RETRIES:
-                delay = RETRY_DELAYS[attempt - 1]
-                print(f"    [GEMINI] {resp.status_code} received — retrying in {delay}s…")
-                time.sleep(delay)
-                continue
-
-            resp.raise_for_status()
-            payload = resp.json()
-
-            # Guard against truncated output: Gemini sets finishReason="MAX_TOKENS"
-            # when it hits the output cap. 60-70 word summaries across 30-60 articles
-            # can push output past a low token cap, so we use 32768.
-            candidate = payload["candidates"][0]
-            finish_reason = candidate.get("finishReason", "")
-            if finish_reason == "MAX_TOKENS":
-                print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
-                      f"response is truncated. Skipping AI summaries.")
-                return "", {}, set()
-
-            raw = candidate["content"]["parts"][0]["text"].strip()
-            print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
-
-            # Strip markdown code fences — some Gemini model versions wrap the JSON
-            # in ```json ... ``` even when responseMimeType is set to application/json.
-            # This causes json.loads to raise JSONDecodeError and silently drops all
-            # summaries. Strip fences defensively before parsing.
-            if raw.startswith("```"):
-                raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
-                raw = re.sub(r"\s*```$", "", raw)
-                raw = raw.strip()
-
+        for attempt in range(1, PER_MODEL_ATTEMPTS + 1):
             try:
-                data = json.loads(raw)
-                break   # success — exit retry loop
-            except json.JSONDecodeError as json_err:
-                print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
-                print(f"     Raw response snippet: {raw[:500]}")
-                return "", {}, set()
+                resp = requests.post(
+                    api_url,
+                    params={"key": api_key},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "responseMimeType": "application/json",
+                            # 32768 gives safe headroom for 60-70 word summaries across
+                            # up to 80+ articles (≈ 6000 words of summary content).
+                            # The old 8192 cap was fine for shorter 1-sentence summaries
+                            # but overflows with 60-70 word targets on busy days,
+                            # causing finishReason=MAX_TOKENS and silently dropping all summaries.
+                            "maxOutputTokens": 32768,
+                        },
+                    },
+                    timeout=120,
+                )
+                print(f"    [GEMINI] {model} attempt {attempt}/{PER_MODEL_ATTEMPTS} — HTTP {resp.status_code}")
 
-        except requests.exceptions.RequestException as req_err:
-            if attempt < MAX_RETRIES:
-                delay = RETRY_DELAYS[attempt - 1]
-                print(f"    [GEMINI] request error on attempt {attempt}: {req_err} — retrying in {delay}s…")
-                time.sleep(delay)
-            else:
+                if resp.status_code in RETRYABLE_CODES:
+                    if attempt < PER_MODEL_ATTEMPTS:
+                        delay = RETRY_DELAYS[attempt - 1]
+                        print(f"    [GEMINI] {resp.status_code} — retrying in {delay}s…")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        # All retries exhausted for this model — try next model
+                        print(f"    [GEMINI] {model} unavailable after {PER_MODEL_ATTEMPTS} attempts — trying next model…")
+                        break
+
+                resp.raise_for_status()
+                payload = resp.json()
+
+                # Guard against truncated output: Gemini sets finishReason="MAX_TOKENS"
+                # when it hits the output cap. 60-70 word summaries across 30-60 articles
+                # can push output past a low token cap, so we use 32768.
+                candidate = payload["candidates"][0]
+                finish_reason = candidate.get("finishReason", "")
+                if finish_reason == "MAX_TOKENS":
+                    print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
+                          f"response is truncated. Skipping AI summaries.")
+                    return "", {}, set()
+
+                raw = candidate["content"]["parts"][0]["text"].strip()
+                print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
+
+                # Strip markdown code fences — some Gemini model versions wrap the JSON
+                # in ```json ... ``` even when responseMimeType is set to application/json.
+                # This causes json.loads to raise JSONDecodeError and silently drops all
+                # summaries. Strip fences defensively before parsing.
+                if raw.startswith("```"):
+                    raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
+                    raw = re.sub(r"\s*```$", "", raw)
+                    raw = raw.strip()
+
+                try:
+                    data = json.loads(raw)
+                    model_success = True
+                    break   # success — exit per-model retry loop
+                except json.JSONDecodeError as json_err:
+                    print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
+                    print(f"     Raw response snippet: {raw[:500]}")
+                    return "", {}, set()
+
+            except requests.exceptions.RequestException as req_err:
+                if attempt < PER_MODEL_ATTEMPTS:
+                    delay = RETRY_DELAYS[attempt - 1]
+                    print(f"    [GEMINI] request error on attempt {attempt}: {req_err} — retrying in {delay}s…")
+                    time.sleep(delay)
+                else:
+                    print(f"    [GEMINI] {model} failed after {PER_MODEL_ATTEMPTS} attempts: {req_err} — trying next model…")
+                    break
+
+            except Exception as exc:
                 import traceback
-                print(f"  ⚠  AI summary — API call failed after {MAX_RETRIES} attempts: {req_err}")
+                print(f"  ⚠  AI summary — unexpected error: {exc}")
                 traceback.print_exc()
                 return "", {}, set()
 
-        except Exception as exc:
-            import traceback
-            print(f"  ⚠  AI summary — unexpected error: {exc}")
-            traceback.print_exc()
-            return "", {}, set()
+        if model_success:
+            break   # don't try remaining models
 
     if data is None:
-        print("  ⚠  AI summary — all retry attempts exhausted. Skipping.")
+        print("  ⚠  AI summary — all models exhausted. Skipping.")
         return "", {}, set()
 
     digest_summary = data.get("digest_summary", "")
