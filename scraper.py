@@ -302,19 +302,6 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
-        "org": "ESG Clarity",
-        "url": "https://esgclarity.com/",
-        "rss": "https://esgclarity.com/feed",
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:esgclarity.com+ESG+OR+sustainable+OR+carbon"
-            "&hl=en-US&gl=US&ceid=US:en"
-        ),
-        "keywords": REALTIME_KEYWORDS,
-        "category": "ESG News",
-        "parser": "rss_news",
-    },
-    {
         "org": "ESG Investing",
         "url": "https://www.esginvesting.co.uk/",
         "rss": "https://www.esginvesting.co.uk/feed/",
@@ -370,6 +357,128 @@ SOURCES = [
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:mondaq.com+ESG+OR+sustainability+OR+carbon&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    # ── Consulting & Advisory firm insights (Real Time Updates) ───────────────
+    # None of these publish a usable ESG-specific RSS feed, so each uses a
+    # Google News site-scoped search (with ESG terms to improve relevance) as the
+    # primary path, with HTML scraping of the insights page as the fallback.
+    # org label always comes from the source dict (no gnews=True).
+    {
+        "org": "PwC",
+        "url": "https://www.pwc.com/us/en/services/esg/sustainability-news-brief.html",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:pwc.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "EY",
+        "url": "https://www.ey.com/en_in/insights",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:ey.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "KPMG",
+        "url": "https://kpmg.com/in/en/insights/esg.html",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:kpmg.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Accenture",
+        "url": "https://www.accenture.com/in-en/insights-index?filter=Sustainability",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:accenture.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Deloitte",
+        "url": "https://www.deloitte.com/us/en/insights/topics/environmental-social-governance.html",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:deloitte.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Khaitan & Co",
+        "url": "https://www.khaitanco.com/thought-leadership",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:khaitanco.com+ESG+OR+sustainability+OR+carbon+OR+BRSR"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "McKinsey",
+        "url": "https://www.mckinsey.com/capabilities/sustainability/our-insights",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:mckinsey.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "BCG",
+        "url": "https://www.bcg.com/capabilities/climate-change-sustainability/insights",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:bcg.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Bain",
+        "url": "https://www.bain.com/insights/?filters=%7Cservices%28285%29",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:bain.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
+            "&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
@@ -1362,8 +1471,9 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         "TARGET LENGTH FOR ALL SUMMARIES: 60-70 words. This is a hard target — "
         "do not stop at 30 words because the source is thin; use all available facts "
         "and expand each point fully before moving to the next.\n\n"
-        "TIER 1 items → Single dense prose paragraph of 60-70 words. "
-        "Extract and fully expand every concrete fact the source provides:\n"
+        "TIER 1 items → A dense prose paragraph of 60-70 words (the FACTS), "
+        "followed by a separate INDIA IMPACT analysis of 1-2 sentences (see below).\n"
+        "FACTS paragraph — extract and fully expand every concrete fact the source provides:\n"
         "  • Exact instrument name, issuing authority, and jurisdiction.\n"
         "  • The specific change in full: what the current requirement is and precisely "
         "what is proposed or now mandated in its place.\n"
@@ -1376,15 +1486,36 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         "  • The issuing body's stated rationale or objective, in their own terms.\n"
         "If the source is thin on a category, omit that category — never write "
         "placeholder sentences. Reach the 60-70 word target by elaborating the facts "
-        "that ARE present, not by padding with generic statements. "
-        "End on a fact, never on advice or a directive.\n\n"
-        "TIER 2 items → Single dense prose paragraph of 60-70 words. "
-        "Cover: (1) what the development is, who published it, and in what context; "
-        "(2) every concrete detail the source gives — figures, rankings, named "
-        "companies, specific findings, methodology, scope; "
+        "that ARE present, not by padding with generic statements.\n\n"
+        "TIER 2 items → A dense prose paragraph of 60-70 words (the FACTS), "
+        "followed by a separate INDIA IMPACT analysis of 1-2 sentences (see below).\n"
+        "FACTS paragraph — cover: (1) what the development is, who published it, and in "
+        "what context; (2) every concrete detail the source gives — figures, rankings, "
+        "named companies, specific findings, methodology, scope; "
         "(3) which entities, sectors, or markets are covered and what specifically "
-        "changes, is disclosed, or is measured. "
-        "Pure fact only — no advisory framing, no forward-looking commentary.\n"
+        "changes, is disclosed, or is measured. Pure fact only in this paragraph.\n\n"
+        "═══ INDIA IMPACT (Tier 1 and Tier 2 only) ═══\n"
+        "After the FACTS paragraph, append 1-2 sentences (wherever the development "
+        "plausibly supports it) that analyse how this development impacts ONE — and only "
+        "the single most relevant one — of the following angles:\n"
+        "  (1) Indian firms, or multinational firms doing business in India — what the "
+        "development means for their operations, disclosure, supply chains, or exposure;\n"
+        "  (2) Investors looking to deploy capital into or out of India — what it signals "
+        "for capital flows, asset allocation, due diligence, or risk pricing;\n"
+        "  (3) How the development compares competitively or on a regulatory basis to "
+        "India's current ESG landscape — e.g. how a global regulatory shift (CSRD, CBAM, "
+        "ISSB, SEC, EU taxonomy) compares to SEBI/BRSR/BRSR Core/LODR frameworks, or how "
+        "global banking/financial-sector climate commitments compare to Indian banking "
+        "and RBI actions.\n"
+        "Begin this analysis with the literal prefix 'India impact: ' so it is visually "
+        "distinct from the facts. Pick the angle the source most directly supports; do not "
+        "force all three. This analytical sentence MAY draw a reasoned comparison or "
+        "implication (this is the one place analysis is permitted), but it must remain "
+        "grounded in the facts of the item and India's known ESG framework — never invent "
+        "specific figures, dates, or events not supportable from the material. "
+        "If the development has no plausible India angle whatsoever (e.g. a purely local "
+        "US municipal matter), omit the India impact line rather than forcing one. "
+        "Keep the India impact to 1-2 sentences maximum.\n"
         "TIER 3 items → set to null. These will be removed from the digest entirely.\n\n"
         "═══ STEP 3: DIGEST ═══\n"
         "Write a 4-6 sentence factual briefing that spans ALL Tier 1 and Tier 2 items "
@@ -1400,13 +1531,17 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         "figure, or jurisdiction from the source material. "
         "No advice, no calls to action, no filler.\n\n"
         "CRITICAL RULES:\n"
-        "• Only report facts explicitly stated in the source. Never infer, speculate, "
-        "or add context not in the text.\n"
+        "• In the FACTS paragraph, only report facts explicitly stated in the source. "
+        "Never infer, speculate, or add context not in the text. The reasoned comparison "
+        "permitted in the 'India impact' line is the SOLE exception, and even there you "
+        "must not invent specific figures, dates, or events.\n"
         "• Write in plain declarative prose. No bullet points inside summaries.\n"
-        "• ABSOLUTE BAN on any advisory language: 'should', 'must monitor', "
-        "'recommended', 'compliance teams should', 'it is advised', "
-        "'watch this space', 'teams are urged', or any equivalent phrasing. "
-        "The last sentence of every summary must be a fact, not a directive.\n"
+        "• ABSOLUTE BAN on directive/advisory language anywhere, including the India "
+        "impact line: 'should', 'must monitor', 'recommended', 'compliance teams should', "
+        "'it is advised', 'watch this space', 'teams are urged', or any equivalent "
+        "phrasing. The India impact line states implications and comparisons as analysis "
+        "(e.g. 'Indian issuers face a wider disclosure gap than under BRSR Core'), never "
+        "as instructions to the reader.\n"
         "• No negative placeholder sentences for missing information.\n"
         "• TIER 3 summaries must be JSON null, not the string 'null'.\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
@@ -1647,6 +1782,31 @@ def render_summary_bar(df: pd.DataFrame) -> str:
     )
 
 
+def _split_india_impact(summary: str) -> tuple[str, str]:
+    """
+    Split an AI summary into (facts, india_impact).
+
+    The prompt instructs Gemini to prefix the analysis with 'India impact:'.
+    We locate that marker case-insensitively (tolerating an optional leading
+    space/newline and variants like 'India Impact -'), return the text before it
+    as the facts paragraph and the text after the colon as the analysis line.
+    If no marker is found, the whole string is treated as facts and the second
+    element is empty.
+    """
+    if not summary:
+        return "", ""
+    # Match 'India impact' followed by ':' or '-' (with optional surrounding space)
+    m = re.search(r"\s*India\s+impact\s*[:\-]\s*", summary, flags=re.IGNORECASE)
+    if not m:
+        return summary.strip(), ""
+    facts = summary[: m.start()].strip()
+    india = summary[m.end():].strip()
+    # Guard: if the split produced an empty facts side, keep everything as facts
+    if not facts:
+        return summary.strip(), ""
+    return facts, india
+
+
 def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
     # Keyword tag pill — sits above title in a horizontal row
     tag_pill = (
@@ -1679,7 +1839,28 @@ def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
         if row.get("snippet") else ""
     )
 
-    # Overview block — "Overview" label replaces "AI:", Georgia serif body text
+    # Overview block — "Overview" label replaces "AI:", Georgia serif body text.
+    # If the AI summary contains an "India impact:" analysis line, split it out and
+    # render it on its own line with a bold gold-navy label so it reads as distinct
+    # analysis sitting beneath the factual summary.
+    overview_body = ""
+    if ai_summary:
+        facts_text, india_text = _split_india_impact(ai_summary)
+        overview_body = (
+            f'<p style="margin:0;font-size:14px;color:{_TEXT};line-height:1.7;{_SERIF}">'
+            f'{facts_text}'
+            "</p>"
+        )
+        if india_text:
+            overview_body += (
+                f'<p style="margin:8px 0 0 0;font-size:14px;color:{_TEXT};'
+                f'line-height:1.7;{_SERIF}">'
+                f'<span style="font-weight:700;color:{_NAVY};{_FONT}font-size:11px;'
+                f'letter-spacing:0.05em;text-transform:uppercase;">India Impact</span>'
+                f'&nbsp;&nbsp;{india_text}'
+                "</p>"
+            )
+
     overview_part = (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
         "<tr>"
@@ -1692,9 +1873,8 @@ def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
         "</td>"
         # Body cell
         '<td valign="top">'
-        f'<p style="margin:0;font-size:14px;color:{_TEXT};line-height:1.7;{_SERIF}">'
-        f'{ai_summary}'
-        "</p></td>"
+        f'{overview_body}'
+        "</td>"
         "</tr></table>"
         "</td></tr></table>"
         if ai_summary else ""
