@@ -679,6 +679,103 @@ def relevance_score(title: str, snippet: str, org: str = "") -> int:
         score += 1
     return score
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ESG NEWS THEMES  (deterministic keyword→theme mapping — no API involved)
+# ─────────────────────────────────────────────────────────────────────────────
+# Every ESG News item is filed under one of six thematic sub-headers, rendered
+# in this fixed order. Assignment is by the item's matched keyword first, then
+# a full-text fallback scan; items whose keywords map to no theme land in
+# DEFAULT_THEME. "Social Impact & Governance" currently has no tracked
+# keywords (no DEI/labour/human-rights terms in the tracker), so it will stay
+# empty — and empty themes are skipped at render time — until such keywords
+# are added to REALTIME_KEYWORDS.
+
+ESG_NEWS_THEMES = [
+    "Regulation, Policy & Disclosures",
+    "Decarbonization & Climate Action",
+    "Sustainable Finance & ESG Investing",
+    "Carbon Markets & Credits",
+    "Eco-Innovation & Clean Tech",
+    "Social Impact & Governance",
+]
+
+DEFAULT_THEME = "Decarbonization & Climate Action"
+
+# Dict order = priority when a fallback text scan hits keywords in several
+# themes. All keys lowercase. Each tracked keyword appears in exactly one set.
+THEME_KEYWORDS: dict[str, frozenset] = {
+    "Regulation, Policy & Disclosures": frozenset([
+        "brsr", "brsr core", "lodr", "listing obligations and disclosure requirements",
+        "csrd", "issb", "ifrs s1", "ifrs s2", "tcfd", "tnfd", "sasb", "gri", "sbtn",
+        "integrated reporting", "double materiality", "esg disclosure", "esg reporting",
+        "esg framework", "cbam", "carbon border adjustment", "carbon border",
+        "eu green deal", "eu carbon tax", "eudr", "red iii", "epr",
+        "extended producer responsibility", "global plastics treaty", "paris agreement",
+        "cop", "kunming montreal", "greenwashing", "taxonomy", "climate policy",
+        "assurance", "assessment", "esg rating", "esg score", "esg benchmark",
+        "esg kpi", "materiality matrix", "esg maturity",
+    ]),
+    "Carbon Markets & Credits": frozenset([
+        "carbon credit", "carbon credits", "carbon offset", "carbon offsetting",
+        "carbon trading", "carbon market", "voluntary carbon market", "compliance carbon",
+        "carbon price", "carbon tax", "carbon registry", "carbon standard", "verra",
+        "gold standard", "article 6", "article 6.2", "jcm", "joint crediting mechanism",
+        "ccts", "eu ets", "carbon leakage", "carbon removal", "carbon sequestration",
+        "forest carbon", "blue carbon", "ocean carbon", "biochar", "beccs", "bio-ccs",
+        "biomass carbon", "biodiversity credits", "water credits", "plastic credit",
+    ]),
+    "Sustainable Finance & ESG Investing": frozenset([
+        "green bond", "sustainability bond", "transition finance", "blended finance",
+        "impact investing", "esg fund", "esg investing", "esg portfolio",
+        "climate finance", "green finance", "sustainable finance", "green investment",
+        "climate fintech", "green fintech", "nature finance", "climate risk",
+        "green finance summit",
+    ]),
+    "Eco-Innovation & Clean Tech": frozenset([
+        "circular economy", "plastic pollution", "single use plastic", "waste to energy",
+        "clean tech", "climate tech", "esg tech", "esg saas", "bioenergy", "biomass",
+        "biomass energy", "biomass power", "biomass pellets", "biomass gasification",
+        "biomass co-firing", "forest biomass", "biofuel", "agricultural residue",
+        "nature based solutions", "ecosystem services", "biodiversity", "nature loss",
+        "biodiversity net gain",
+        "deforestation", "wildlife", "wetlands", "water stewardship", "water risk",
+        "water stress", "water footprint", "water security", "water recycling",
+        "groundwater", "watershed", "cdp water",
+    ]),
+    "Decarbonization & Climate Action": frozenset([
+        "net zero", "india net zero", "decarbonisation", "emissions reduction",
+        "carbon footprint", "carbon neutral", "carbon emissions", "net emissions",
+        "scope 1", "scope 2", "scope 3", "ghg", "green house gas", "green house gases",
+        "greenhouse gas", "greenhouse gases", "emissions", "methane", "climate action",
+        "climate change", "global warming", "clean energy transition", "energy transition",
+        "renewable energy", "solar", "wind energy", "green hydrogen", "battery storage",
+        "electric vehicle",
+    ]),
+    # No tracked keywords yet — populates only if such terms are added.
+    "Social Impact & Governance": frozenset([]),
+}
+
+
+def assign_theme(keyword: str, title: str = "", snippet: str = "") -> str:
+    """
+    File an ESG News item under one of the six themes.
+    1. Direct lookup of the item's tagged keyword.
+    2. Fallback: scan title+snippet for ALL tracked keywords (most specific
+       first) and take the first one that maps to a theme.
+    3. Otherwise DEFAULT_THEME.
+    """
+    kw_l = (keyword or "").lower()
+    for theme, kws in THEME_KEYWORDS.items():
+        if kw_l in kws:
+            return theme
+    for m in all_keyword_matches(f"{title} {snippet}", REALTIME_KEYWORDS):
+        m_l = m.lower()
+        for theme, kws in THEME_KEYWORDS.items():
+            if m_l in kws:
+                return theme
+    return DEFAULT_THEME
+
 def clean_snippet(text: str, max_len: int = 260) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len] + "…" if len(text) > max_len else text
@@ -1538,6 +1635,12 @@ if not df_new.empty:
         lambda r: relevance_score(r.get("title", ""), r.get("snippet", ""), r.get("org", "")),
         axis=1,
     )
+    # Thematic sub-header assignment (ESG News only; other categories blank)
+    df_new["theme"] = df_new.apply(
+        lambda r: assign_theme(r.get("keyword", ""), r.get("title", ""), r.get("snippet", ""))
+        if r.get("category") == "ESG News" else "",
+        axis=1,
+    )
     df_new = df_new.sort_values(
         "relevance", ascending=False, kind="stable"
     ).reset_index(drop=True)
@@ -1583,7 +1686,7 @@ GEMINI_MODELS = [
     "gemini-1.5-flash",   # last-resort stable fallback
 ]
 
-def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
+def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
     """
     SUMMARIZATION ONLY. The API never filters, ranks, or excludes items —
     relevance is decided deterministically at scrape time (news_keyword_gate).
@@ -1591,16 +1694,17 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
     still renders with all items, just without Overview blocks.
 
     Returns:
-        digest_summary  : str   – 4-6 sentence briefing across all items
+        india_glance    : str   – 2-4 sentence "ESG in India at a Glance" brief
+        global_brief    : str   – 3-5 sentence global developments brief
         uid_summaries   : dict  – {uid: summary} for every item
     """
     if df_new.empty:
-        return "", {}
+        return "", "", {}
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         print("  ⚠  GEMINI_API_KEY not set — skipping AI summaries.")
-        return "", {}
+        return "", "", {}
 
     print("  → Generating AI summaries via Gemini REST API…")
 
@@ -1667,19 +1771,26 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         "If the development has no plausible India angle whatsoever (e.g. a purely local "
         "US municipal matter), omit the India impact line rather than forcing one. "
         "Keep the India impact to 1-2 sentences maximum.\n\n"
-        "═══ PART 3: DIGEST ═══\n"
-        "Write a 4-6 sentence factual briefing that spans ALL items "
-        "across every category (Regulatory, Tenders, ESG News). "
-        "Do NOT focus on a single article — the digest must reflect the full breadth "
-        "of today's items.\n"
-        "Structure: lead with any regulatory or policy developments (instrument, "
-        "issuing body, jurisdiction, scope, dates if stated); then cover market/"
-        "industry themes by grouping related articles into a single factual thread rather "
-        "than listing each article individually. End on a concrete fact, not a directive.\n"
-        "If there are no regulatory items, cover the market items in 4-5 factual sentences "
-        "grouped by theme. Every sentence must name a specific development, organisation, "
+        "═══ PART 3: DAILY BRIEF (two fields) ═══\n"
+        "Write the briefing as TWO separate fields:\n\n"
+        "FIELD 'india_glance' — 2-4 factual sentences covering ONLY what matters in "
+        "the Indian context today: (a) developments from Indian sources or about India "
+        "(SEBI, RBI, ministries, Indian companies, Indian markets), and (b) global "
+        "developments with a direct, concrete consequence for India (e.g. a CSRD scope "
+        "change affecting Indian exporters, CBAM rules affecting Indian shipments). "
+        "For (b), state the India consequence explicitly, not just the global fact. "
+        "If NOTHING in today's items has any India relevance, return an empty string "
+        "for this field — never pad it with global news.\n\n"
+        "FIELD 'global_brief' — 3-5 factual sentences covering the remaining global "
+        "regulatory and market developments NOT already covered in india_glance. "
+        "Lead with regulatory or policy developments (instrument, issuing body, "
+        "jurisdiction, scope, dates if stated); then group market/industry themes into "
+        "factual threads rather than listing each article individually. Do not repeat "
+        "items already covered in india_glance. End on a concrete fact, not a directive.\n\n"
+        "Both fields: every sentence must name a specific development, organisation, "
         "figure, or jurisdiction from the source material. "
-        "No advice, no calls to action, no filler.\n\n"
+        "No advice, no calls to action, no filler. Do NOT begin either field with "
+        "'Good morning' — the email template adds the greeting itself.\n\n"
         "CRITICAL RULES:\n"
         "• Every numbered item MUST receive a summary string — never null, never "
         "an empty string, never a skipped key.\n"
@@ -1697,7 +1808,8 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         "• No negative placeholder sentences for missing information.\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
         "{\n"
-        '  "digest_summary": "...",\n'
+        '  "india_glance": "...",\n'
+        '  "global_brief": "...",\n'
         '  "article_summaries": {\n'
         '    "1": "...",\n'
         '    "2": "..."\n'
@@ -1764,7 +1876,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
                 if finish_reason == "MAX_TOKENS":
                     print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
                           f"response is truncated. Skipping AI summaries.")
-                    return "", {}
+                    return "", "", {}
 
                 raw = candidate["content"]["parts"][0]["text"].strip()
                 print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
@@ -1785,7 +1897,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
                 except json.JSONDecodeError as json_err:
                     print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
                     print(f"     Raw response snippet: {raw[:500]}")
-                    return "", {}
+                    return "", "", {}
 
             except requests.exceptions.RequestException as req_err:
                 if attempt < PER_MODEL_ATTEMPTS:
@@ -1800,16 +1912,21 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
                 import traceback
                 print(f"  ⚠  AI summary — unexpected error: {exc}")
                 traceback.print_exc()
-                return "", {}
+                return "", "", {}
 
         if model_success:
             break   # don't try remaining models
 
     if data is None:
         print("  ⚠  AI summary — all models exhausted. Skipping.")
-        return "", {}
+        return "", "", {}
 
-    digest_summary = data.get("digest_summary", "")
+    india_glance = data.get("india_glance", "") or ""
+    global_brief = data.get("global_brief", "") or ""
+    # Backwards compatibility: if a model returns the old single-field shape,
+    # treat it as the global brief so the email still gets a Daily Brief.
+    if not (india_glance or global_brief):
+        global_brief = data.get("digest_summary", "") or ""
     article_summaries = data.get("article_summaries", {})
 
     uid_summaries: dict[str, str] = {}
@@ -1822,8 +1939,9 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
         except (ValueError, IndexError):
             pass
 
-    print(f"    ✓ AI summaries: {len(uid_summaries)}/{len(rows)} items summarized")
-    return digest_summary, uid_summaries
+    print(f"    ✓ AI summaries: {len(uid_summaries)}/{len(rows)} items summarized "
+          f"(india_glance: {'yes' if india_glance else 'empty'})")
+    return india_glance, global_brief, uid_summaries
 
 
 # ==========================================
@@ -2047,6 +2165,19 @@ def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
     )
 
 
+def _render_theme_bar(theme: str, n: int) -> str:
+    """Slim navy theme sub-header (approved Mockup 2A): gold uppercase label + count."""
+    return (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+        f'<tr><td bgcolor="{_NAVY_MED}" style="background:{_NAVY_MED};padding:6px 20px;">'
+        f'<span style="color:{_GOLD};font-size:11px;font-weight:700;'
+        f'letter-spacing:0.08em;text-transform:uppercase;{_FONT}">'
+        f'{theme}&nbsp;<span style="font-weight:400;color:#9fb0cd;">({n})</span>'
+        "</span>"
+        "</td></tr></table>"
+    )
+
+
 def render_category_section(
     df: pd.DataFrame, category: str, cfg: dict,
     always_show: bool = False, uid_summaries: dict | None = None
@@ -2068,6 +2199,31 @@ def render_category_section(
             f"No new {category} items today."
             "</p></td></tr></table>"
         )
+    elif category == "ESG News" and "theme" in cat_df.columns:
+        # Approved Mockup 2A: group items under thematic sub-headers in fixed
+        # ESG_NEWS_THEMES order. Empty themes are skipped entirely. Items keep
+        # their relevance order within each theme (df is pre-sorted globally).
+        # Items with an unmapped/blank theme (shouldn't occur) fall to the end
+        # under DEFAULT_THEME via assign_theme's fallback.
+        parts = []
+        for theme in ESG_NEWS_THEMES:
+            theme_df = cat_df[cat_df["theme"] == theme]
+            if theme_df.empty:
+                continue
+            parts.append(_render_theme_bar(theme, len(theme_df)))
+            parts.append("".join(
+                render_article_card(row, cfg, ai_summary=uid_summaries.get(row["uid"], ""))
+                for _, row in theme_df.iterrows()
+            ))
+        # Safety net: render any rows whose theme isn't in ESG_NEWS_THEMES
+        leftover = cat_df[~cat_df["theme"].isin(ESG_NEWS_THEMES)]
+        if not leftover.empty:
+            parts.append(_render_theme_bar(DEFAULT_THEME, len(leftover)))
+            parts.append("".join(
+                render_article_card(row, cfg, ai_summary=uid_summaries.get(row["uid"], ""))
+                for _, row in leftover.iterrows()
+            ))
+        cards = "".join(parts)
     else:
         cards = "".join(
             render_article_card(row, cfg, ai_summary=uid_summaries.get(row["uid"], ""))
@@ -2112,10 +2268,46 @@ def render_footer() -> str:
     )
 
 
-def render_ai_digest_block(digest_summary: str) -> str:
-    """Daily brief block — gold left bar, Georgia serif body, no emoji."""
-    if not digest_summary:
+def _brief_subheading(label: str) -> str:
+    """Small-caps gold-underlined subheading used inside the Daily Brief (1B)."""
+    return (
+        f'<p style="margin:0 0 6px 0;font-size:11px;font-weight:700;color:{_NAVY};'
+        f'text-transform:uppercase;letter-spacing:0.09em;'
+        f'border-bottom:1px solid {_GOLD};padding-bottom:4px;{_FONT}">'
+        f"{label}</p>"
+    )
+
+
+def render_ai_digest_block(india_glance: str, global_brief: str) -> str:
+    """
+    Daily brief block — approved Mockup 1B layout:
+      "Good morning." → [ESG in India at a Glance + para] → [Global Developments + para]
+    Either part is skipped when its text is empty; if both are empty the whole
+    block is omitted (same behaviour as before).
+    """
+    if not (india_glance or global_brief):
         return ""
+
+    body = (
+        f'<p style="margin:0 0 10px 0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
+        "Good morning."
+        "</p>"
+    )
+    if india_glance:
+        body += (
+            _brief_subheading("ESG in India at a Glance")
+            + f'<p style="margin:0 0 14px 0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
+            + india_glance
+            + "</p>"
+        )
+    if global_brief:
+        body += (
+            _brief_subheading("Global Developments")
+            + f'<p style="margin:0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
+            + global_brief
+            + "</p>"
+        )
+
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0" '
         'style="margin-bottom:6px;">'
@@ -2126,9 +2318,7 @@ def render_ai_digest_block(digest_summary: str) -> str:
         f'text-transform:uppercase;letter-spacing:0.09em;{_FONT}">'
         "Daily Brief"
         "</p>"
-        f'<p style="margin:0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
-        f"Good morning. {digest_summary}"
-        "</p>"
+        f"{body}"
         "</td>"
         "</tr></table>"
     )
@@ -2138,7 +2328,7 @@ def build_email(df_new: pd.DataFrame) -> str:
     # ── AI summaries (single API call; summarization ONLY — never filters) ────
     # Relevance was already decided deterministically at scrape time
     # (news_keyword_gate). Every item in df_new is rendered.
-    digest_summary, uid_summaries = generate_ai_summaries(df_new)
+    india_glance, global_brief, uid_summaries = generate_ai_summaries(df_new)
     df_render = df_new
 
     if df_render.empty:
@@ -2164,7 +2354,7 @@ def build_email(df_new: pd.DataFrame) -> str:
             for cat, cfg in CATEGORY_STYLE.items()
         )
         summary_html = render_summary_bar(df_render)
-        ai_digest_html = render_ai_digest_block(digest_summary)
+        ai_digest_html = render_ai_digest_block(india_glance, global_brief)
 
     inner = render_header(len(df_render)) + summary_html + ai_digest_html + content + render_footer()
 
