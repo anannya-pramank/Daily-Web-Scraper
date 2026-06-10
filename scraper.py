@@ -363,126 +363,82 @@ SOURCES = [
         "parser": "rss_news",
     },
     # ── Consulting & Advisory firm insights (Real Time Updates) ───────────────
-    # None of these publish a usable ESG-specific RSS feed, so each uses a
-    # Google News site-scoped search (with ESG terms to improve relevance) as the
-    # primary path, with HTML scraping of the insights page as the fallback.
-    # org label always comes from the source dict (no gnews=True).
+    # None of these publish a usable ESG-specific RSS feed, so each is scraped
+    # directly from its insights/thought-leadership page via parser="html"
+    # (no RSS, no Google News). org label always comes from the source dict.
+    # Caveat: most of these are JS-rendered SPAs, so a static GET may return few
+    # or no article links — see parse_html's docstring for the Playwright path.
     {
         "org": "PwC",
         "url": "https://www.pwc.com/us/en/services/esg/sustainability-news-brief.html",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:pwc.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-US&gl=US&ceid=US:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "EY",
         "url": "https://www.ey.com/en_in/insights",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:ey.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-IN&gl=IN&ceid=IN:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "KPMG",
         "url": "https://kpmg.com/in/en/insights/esg.html",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:kpmg.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-IN&gl=IN&ceid=IN:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "Accenture",
         "url": "https://www.accenture.com/in-en/insights-index?filter=Sustainability",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:accenture.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-US&gl=US&ceid=US:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "Deloitte",
         "url": "https://www.deloitte.com/us/en/insights/topics/environmental-social-governance.html",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:deloitte.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-US&gl=US&ceid=US:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "Khaitan & Co",
         "url": "https://www.khaitanco.com/thought-leadership",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:khaitanco.com+ESG+OR+sustainability+OR+carbon+OR+BRSR"
-            "&hl=en-IN&gl=IN&ceid=IN:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "McKinsey",
         "url": "https://www.mckinsey.com/capabilities/sustainability/our-insights",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:mckinsey.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-US&gl=US&ceid=US:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "BCG",
         "url": "https://www.bcg.com/capabilities/climate-change-sustainability/insights",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:bcg.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-US&gl=US&ceid=US:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "Bain",
         "url": "https://www.bain.com/insights/?filters=%7Cservices%28285%29",
         "rss": None,
-        "rss_gnews": (
-            "https://news.google.com/rss/search"
-            "?q=site:bain.com+ESG+OR+sustainability+OR+carbon+OR+%22net+zero%22"
-            "&hl=en-US&gl=US&ceid=US:en"
-        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "rss_news",
+        "parser": "html",
     },
     {
         "org": "PIB India",
@@ -637,6 +593,117 @@ def fetch_rss(rss_url: str):
 # 4. PARSERS
 # ==========================================
 
+def _scrape_article_links(
+    soup: BeautifulSoup, base_url: str, keywords: list, org: str,
+    category: str, seen: set, recency_cutoff=NEWS_CUTOFF,
+) -> list[dict]:
+    """
+    Shared HTML article extractor used by both parse_html (direct blog/insights
+    scraping) and parse_rss's HTML fallback.
+
+    Walks three progressively broader strategies over the parsed page:
+      A. <article> containers,
+      B. div/section elements whose class hints at a post/card/article/story,
+      C. <h2>/<h3> heading links (broadest catch-all).
+    For each candidate it keyword-matches title + body, applies the recency
+    gate when a date is extractable (undated items are kept — age unknown),
+    and dedupes against the caller-supplied `seen` set (mutated in place).
+    Returns an uncapped list of hit dicts; callers apply MAX_PER_SOURCE.
+    """
+    hits = []
+
+    # Strategy A: <article> containers
+    containers = soup.find_all("article") or []
+
+    # Strategy B: divs/sections with post/card/article in class
+    if not containers:
+        containers = soup.select(
+            'div[class*="post"], div[class*="card"], div[class*="article"], '
+            'div[class*="entry"], div[class*="item"], div[class*="story"], '
+            'div[class*="news"], section[class*="article"]'
+        )
+
+    # Strategy C: all h2/h3 heading links (broadest catch-all)
+    heading_links = []
+    for h in soup.find_all(["h2", "h3"]):
+        a = h.find("a", href=True)
+        if a:
+            heading_links.append((a, h.parent or h))
+
+    def _consider(title: str, href: str, body_text: str, ctx) -> None:
+        if not href.startswith("http"):
+            href = urljoin(base_url, href)
+        if href in seen or len(title) < 8:
+            return
+        kw = first_keyword_match(f"{title} {body_text}", keywords)
+        if not kw:
+            return
+        date_el = None
+        if ctx is not None:
+            date_el = (ctx.find(attrs={"class": re.compile(r"date|time|publish", re.I)})
+                       or ctx.find("time"))
+        raw_date = date_el.get_text(strip=True) if date_el else ""
+        # Recency gate: skip only if a parseable date is older than the cutoff.
+        if raw_date:
+            item_dt = parse_fuzzy_date(raw_date)
+            if item_dt and item_dt < recency_cutoff:
+                return
+        seen.add(href)
+        hits.append({
+            "org": org,
+            "category": category,
+            "keyword": kw,
+            "title": title,
+            "article_url": href,
+            "date": fmt_date(raw_date) if raw_date else "",
+            "snippet": clean_snippet(body_text),
+            "uid": make_uid(href, title),
+        })
+
+    for container in containers:
+        a = container.find("a", href=True)
+        if not a:
+            continue
+        _consider(
+            a.get_text(strip=True), a["href"],
+            container.get_text(separator=" ", strip=True), container,
+        )
+
+    for a, context in heading_links:
+        body_text = context.get_text(separator=" ", strip=True) if context else a.get_text(strip=True)
+        _consider(a.get_text(strip=True), a["href"], body_text, context)
+
+    return hits
+
+
+def parse_html(source: dict) -> list[dict]:
+    """
+    Direct HTML scraper for blog / insights / thought-leadership pages that do
+    not expose a usable RSS feed (the consulting & advisory firms). No RSS and
+    no Google News — fetches the insights page itself and extracts article
+    links via the shared _scrape_article_links strategies, then caps the result
+    at MAX_PER_SOURCE.
+
+    NOTE: several of these sites (McKinsey, BCG, Bain, PwC, Deloitte, Accenture,
+    EY, KPMG) render their listing pages client-side. A plain static GET may
+    return a near-empty shell, in which case this parser yields few or no hits.
+    To reliably surface articles from those SPAs, a JS-rendering path
+    (Playwright, as in parse_gem_bidplus) would be needed.
+    """
+    hits, seen = [], set()
+    soup = fetch_soup(source["url"])
+    if not soup:
+        print(f"    ⚠  could not fetch {source['url']}")
+        return []
+
+    hits = _scrape_article_links(
+        soup, source["url"], source["keywords"], source["org"],
+        source["category"], seen,
+    )
+    print(f"    ✓ HTML scrape: {len(hits)} match(es) (capped at {MAX_PER_SOURCE})")
+    return hits[:MAX_PER_SOURCE]
+
+
 def parse_rss(source: dict) -> list[dict]:
     """
     Primary parser for all news/blog sites.
@@ -753,90 +820,11 @@ def parse_rss(source: dict) -> list[dict]:
     if not soup:
         return []
 
-    # Strategy A: <article> containers
-    containers = soup.find_all("article") or []
-
-    # Strategy B: divs/sections with post/card/article in class
-    if not containers:
-        containers = soup.select(
-            'div[class*="post"], div[class*="card"], div[class*="article"], '
-            'div[class*="entry"], div[class*="item"], div[class*="story"], '
-            'div[class*="news"], section[class*="article"]'
-        )
-
-    # Strategy C: all h2/h3 heading links (broadest catch-all)
-    heading_links = []
-    for h in soup.find_all(["h2", "h3"]):
-        a = h.find("a", href=True)
-        if a:
-            heading_links.append((a, h.parent or h))
-
-    for container in containers:
-        a = container.find("a", href=True)
-        if not a:
-            continue
-        title = a.get_text(strip=True)
-        href = a["href"]
-        if not href.startswith("http"):
-            href = urljoin(base_url, href)
-        if href in seen or len(title) < 8:
-            continue
-
-        body_text = container.get_text(separator=" ", strip=True)
-        kw = first_keyword_match(f"{title} {body_text}", keywords)
-        if kw:
-            seen.add(href)
-            date_el = container.find(attrs={"class": re.compile(r"date|time|publish", re.I)}) \
-                      or container.find("time")
-            raw_date = date_el.get_text(strip=True) if date_el else ""
-            # Recency gate: if a date is parseable and it's older than NEWS_CUTOFF, skip it.
-            # Items with no extractable date are kept (age unknown).
-            if raw_date:
-                item_dt = parse_fuzzy_date(raw_date)
-                if item_dt and item_dt < NEWS_CUTOFF:
-                    continue
-            hits.append({
-                "org": org,
-                "category": source["category"],
-                "keyword": kw,
-                "title": title,
-                "article_url": href,
-                "date": fmt_date(raw_date) if raw_date else "",
-                "snippet": clean_snippet(body_text),
-                "uid": make_uid(href, title),
-            })
-
-    for a, context in heading_links:
-        title = a.get_text(strip=True)
-        href = a["href"]
-        if not href.startswith("http"):
-            href = urljoin(base_url, href)
-        if href in seen or len(title) < 8:
-            continue
-
-        body_text = context.get_text(separator=" ", strip=True) if context else title
-        kw = first_keyword_match(f"{title} {body_text}", keywords)
-        if kw:
-            seen.add(href)
-            date_el = (context.find(attrs={"class": re.compile(r"date|time|publish", re.I)})
-                       or context.find("time")) if context else None
-            raw_date = date_el.get_text(strip=True) if date_el else ""
-            # Recency gate: same logic as container loop above
-            if raw_date:
-                item_dt = parse_fuzzy_date(raw_date)
-                if item_dt and item_dt < NEWS_CUTOFF:
-                    continue
-            hits.append({
-                "org": org,
-                "category": source["category"],
-                "keyword": kw,
-                "title": title,
-                "article_url": href,
-                "date": fmt_date(raw_date) if raw_date else "",
-                "snippet": clean_snippet(body_text),
-                "uid": make_uid(href, title),
-            })
-
+    # Reuse the shared extractor (same three strategies as before). The `seen`
+    # set is carried over from the RSS passes so already-seen links are skipped.
+    hits.extend(_scrape_article_links(
+        soup, base_url, keywords, org, source["category"], seen,
+    ))
     return hits
 
 
@@ -1323,6 +1311,7 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
 
 PARSER_MAP = {
     "rss_news": parse_rss,
+    "html": parse_html,
     "sebi": parse_sebi,
     "gem": parse_gem,
     "cppp": parse_cppp,
