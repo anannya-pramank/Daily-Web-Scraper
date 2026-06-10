@@ -611,6 +611,74 @@ def news_keyword_gate(title: str, body_text: str, keywords: list) -> str | None:
         return matches[0]
     return None
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RELEVANCE RANKING  (deterministic, code-side — no API involved)
+# ─────────────────────────────────────────────────────────────────────────────
+# Items are scored after dedup and sorted descending within each category, so
+# the most reader-relevant items render at the top of every section. The score
+# only affects ORDER — it never drops anything (filtering already happened at
+# the news_keyword_gate).
+
+# Regulatory instruments and binding-framework terms: the highest-signal
+# content for a compliance reader. Matching any of these earns the top boost.
+HIGH_SIGNAL_TERMS = frozenset(k.lower() for k in [
+    "BRSR", "BRSR Core", "LODR", "Listing Obligations and Disclosure Requirements",
+    "CBAM", "Carbon Border Adjustment", "EU ETS", "EU Carbon Tax", "EU Green Deal",
+    "CSRD", "ISSB", "IFRS S1", "IFRS S2", "TCFD", "TNFD", "EUDR", "RED III",
+    "EPR", "Extended Producer Responsibility", "Global Plastics Treaty",
+    "Article 6", "Article 6.2", "Joint Crediting Mechanism", "JCM", "CCTS",
+    "Carbon Tax", "Carbon Price", "Compliance Carbon", "Taxonomy",
+    "Paris Agreement", "Kunming Montreal",
+])
+
+# India-relevance signal: explicit India hooks in the text get a strong boost
+# because the digest's readers are India-focused counsel.
+INDIA_RELEVANCE_RE = re.compile(
+    r"\b(india|indian|sebi|rbi|brsr|lodr|ccts|niti\s+aayog|moefcc|cpcb|"
+    r"gift\s+city|nse|bse|rupee|inr)\b",
+    re.IGNORECASE,
+)
+
+# Sources whose coverage is inherently India-centric get a smaller flat boost,
+# so e.g. a PIB or Khaitan item outranks an equally-scored global wire piece.
+INDIA_FOCUSED_ORGS = frozenset([
+    "PIB India", "Khaitan & Co",
+    "SEBI Master Circular", "SEBI Circulars",
+    "SEBI Advisory/Guidance", "SEBI Gazette Notification",
+])
+
+
+def relevance_score(title: str, snippet: str, org: str = "") -> int:
+    """
+    Deterministic relevance score for ordering items within a section.
+    Components (max ~15):
+      +4  any high-signal regulatory/instrument term present
+      +4  explicit India hook in title or snippet
+      +2  at least one specific (non-generic) keyword match
+      +2  source is an India-focused org
+      +1..4  breadth: number of distinct keywords matched (capped)
+      +1  a tracked keyword appears in the TITLE itself (not just body)
+    """
+    title = title or ""
+    snippet = snippet or ""
+    text = f"{title} {snippet}"
+    matches = set(m.lower() for m in all_keyword_matches(text, REALTIME_KEYWORDS))
+
+    score = 0
+    if matches & HIGH_SIGNAL_TERMS:
+        score += 4
+    if INDIA_RELEVANCE_RE.search(text):
+        score += 4
+    if matches - GENERIC_KEYWORDS:
+        score += 2
+    if org in INDIA_FOCUSED_ORGS:
+        score += 2
+    score += min(len(matches), 4)
+    if all_keyword_matches(title, REALTIME_KEYWORDS):
+        score += 1
+    return score
+
 def clean_snippet(text: str, max_len: int = 260) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len] + "…" if len(text) > max_len else text
@@ -1459,6 +1527,22 @@ else:
     df_history = pd.DataFrame(columns=["uid", "date_seen"])
 
 print(f"  New items after dedup: {len(df_new)}")
+
+# ── Relevance ordering ────────────────────────────────────────────────────
+# Score every item and sort descending. Sections filter by category at render
+# time, so a single global sort yields most-relevant-first within each section.
+# Stable sort: equal scores keep their original scrape order. Order only —
+# nothing is dropped here.
+if not df_new.empty:
+    df_new["relevance"] = df_new.apply(
+        lambda r: relevance_score(r.get("title", ""), r.get("snippet", ""), r.get("org", "")),
+        axis=1,
+    )
+    df_new = df_new.sort_values(
+        "relevance", ascending=False, kind="stable"
+    ).reset_index(drop=True)
+    top = df_new.iloc[0]
+    print(f"  Ranked by relevance — top item [{top['relevance']}]: {top['title'][:70]}")
 
 # ==========================================
 # 7. PERSIST HISTORY
