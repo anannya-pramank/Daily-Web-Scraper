@@ -533,6 +533,84 @@ def first_keyword_match(text: str, keywords: list) -> str | None:
             return kw
     return None
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CODE-LEVEL RELEVANCE GATE  (ESG News only — no API involved)
+# ─────────────────────────────────────────────────────────────────────────────
+# Relevance filtering happens HERE, deterministically, at scrape time.
+# The Gemini step downstream is used ONLY to write summaries — it never
+# decides what is included in or excluded from the digest.
+
+# Title patterns that mark low-signal PR items with no compliance content:
+# executive appointments, awards/recognition, anniversaries, webinars/event
+# promos. Matched against the TITLE only, and only for ESG News sources
+# (never tenders/SEBI, where e.g. "wins contract" is the whole point).
+NOISE_TITLE_RE = re.compile(
+    r"\b("
+    r"appoints?|"
+    r"names\s+\w+(\s+\w+){0,3}\s+as\b|"          # "Names Jane Doe as CSO"
+    r"joins\s+(\w+\s+)?as\b|"                     # "Joins Acme as Head of ESG"
+    r"promotes?\s+\w+|hires\s+\w+|"
+    r"new\s+(chief|head\s+of)\b|"
+    r"award(s|ed)?\b|wins\s+(award|prize|recognition)|"
+    r"recogni[sz]ed\s+(as|for|by)|"
+    r"named\s+(to|among|one\s+of)\b|"             # "Named to Fortune list"
+    r"anniversar(y|ies)|celebrates?\b|honou?red\b|"
+    r"webinar|register\s+now|join\s+us\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Bare catch-all terms: matching ONE of these alone is not evidence of
+# compliance relevance — almost any corporate press release mentions
+# "sustainability" or "ESG" once. An ESG News item passes the gate only if
+# it matches at least one SPECIFIC keyword, or at least TWO distinct
+# generic ones.
+GENERIC_KEYWORDS = frozenset(k.lower() for k in [
+    "ESG", "Sustainability", "Sustainab", "Sustainable Finance",
+    "Green Finance", "Emissions", "Solar", "Net Zero", "Climate Change",
+    "Climate Action", "Renewable Energy", "Assurance", "Assessment",
+    "Biodiversity", "Biomass", "Deforestation", "Greenhouse Gas",
+    "Greenhouse Gases", "GHG", "COP",
+])
+
+
+def all_keyword_matches(text: str, keywords: list) -> list[str]:
+    """All whole-word keyword matches in text, most specific (longest) first."""
+    text_lower = text.lower()
+    found = []
+    for kw in sorted(keywords, key=len, reverse=True):
+        pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}(?![a-zA-Z0-9])"
+        if re.search(pattern, text_lower):
+            found.append(kw)
+    return found
+
+
+def news_keyword_gate(title: str, body_text: str, keywords: list) -> str | None:
+    """
+    Relevance gate for ESG News items. Returns the keyword to tag the item
+    with if it passes, else None.
+
+    Rules:
+      1. Title matching NOISE_TITLE_RE (appointment/award/anniversary/webinar
+         PR) → rejected outright.
+      2. At least one SPECIFIC keyword match (anything not in
+         GENERIC_KEYWORDS) → passes, tagged with the most specific match.
+      3. Otherwise, two or more DISTINCT generic matches → passes.
+         A single bare "Sustainability" or "ESG" mention is not enough.
+    """
+    if NOISE_TITLE_RE.search(title or ""):
+        return None
+    matches = all_keyword_matches(f"{title} {body_text}", keywords)
+    if not matches:
+        return None
+    specific = [m for m in matches if m.lower() not in GENERIC_KEYWORDS]
+    if specific:
+        return specific[0]          # longest-first ordering preserved
+    if len(set(m.lower() for m in matches)) >= 2:
+        return matches[0]
+    return None
+
 def clean_snippet(text: str, max_len: int = 260) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len] + "…" if len(text) > max_len else text
@@ -635,7 +713,12 @@ def _scrape_article_links(
             href = urljoin(base_url, href)
         if href in seen or len(title) < 8:
             return
-        kw = first_keyword_match(f"{title} {body_text}", keywords)
+        # ESG News goes through the deterministic relevance gate (noise-title
+        # filter + generic-keyword rule); other categories keep plain matching.
+        if category == "ESG News":
+            kw = news_keyword_gate(title, body_text, keywords)
+        else:
+            kw = first_keyword_match(f"{title} {body_text}", keywords)
         if not kw:
             return
         date_el = None
@@ -763,8 +846,12 @@ def parse_rss(source: dict) -> list[dict]:
             ):
                 continue
 
-            check = f"{title} {summary}"
-            kw = first_keyword_match(check, keywords)
+            # ESG News goes through the deterministic relevance gate (noise-title
+            # filter + generic-keyword rule); other categories keep plain matching.
+            if source["category"] == "ESG News":
+                kw = news_keyword_gate(title, summary, keywords)
+            else:
+                kw = first_keyword_match(f"{title} {summary}", keywords)
             if kw and link not in seen:
                 seen.add(link)
                 result.append({
@@ -1412,20 +1499,24 @@ GEMINI_MODELS = [
     "gemini-1.5-flash",   # last-resort stable fallback
 ]
 
-def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
+def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict]:
     """
+    SUMMARIZATION ONLY. The API never filters, ranks, or excludes items —
+    relevance is decided deterministically at scrape time (news_keyword_gate).
+    Every item passed in gets a summary; if the API call fails, the email
+    still renders with all items, just without Overview blocks.
+
     Returns:
-        digest_summary  : str   – executive briefing (Tier 1 items only)
-        uid_summaries   : dict  – {uid: summary} for Tier 1 and Tier 2 items
-        excluded_uids   : set   – UIDs of Tier 3 items to remove from the rendered email
+        digest_summary  : str   – 4-6 sentence briefing across all items
+        uid_summaries   : dict  – {uid: summary} for every item
     """
     if df_new.empty:
-        return "", {}, set()
+        return "", {}
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         print("  ⚠  GEMINI_API_KEY not set — skipping AI summaries.")
-        return "", {}, set()
+        return "", {}
 
     print("  → Generating AI summaries via Gemini REST API…")
 
@@ -1445,45 +1536,32 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         f"Below are {len(rows)} items scraped today:\n\n"
         + "\n".join(numbered)
         + "\n\n"
-        "═══ STEP 1: TRIAGE each item into one of three tiers ═══\n"
-        "TIER 1 — High signal: regulatory change, enforcement action, new mandatory standard, "
-        "binding policy decision, or market development with direct and specific compliance "
-        "implications (e.g. new SEBI circular, CBAM update, CSRD implementation news).\n"
-        "TIER 2 — Medium signal: useful market or industry development worth monitoring but "
-        "without an immediate compliance obligation (e.g. voluntary benchmarks, industry "
-        "initiatives, company sustainability disclosures, investor trend reports).\n"
-        "TIER 3 — Exclude: conference/event announcements with no policy content, "
-        "generic thought-leadership, anniversary/milestone articles, awards, ceremonial "
-        "government events, weekly roundup articles, or anything with no actionable "
-        "compliance relevance for a corporate legal team.\n\n"
-        "═══ STEP 2: SUMMARIES ═══\n"
+        "Your ONLY job is to summarize. Do not select, rank, exclude, or skip any item — "
+        "write a summary for EVERY numbered item.\n\n"
+        "═══ PART 1: PER-ITEM SUMMARIES ═══\n"
         "TARGET LENGTH FOR ALL SUMMARIES: 60-70 words. This is a hard target — "
         "do not stop at 30 words because the source is thin; use all available facts "
         "and expand each point fully before moving to the next.\n\n"
-        "TIER 1 items → A dense prose paragraph of 60-70 words (the FACTS), "
+        "Each summary is a dense prose paragraph of 60-70 words (the FACTS), "
         "followed by a separate INDIA IMPACT analysis of 1-2 sentences (see below).\n"
         "FACTS paragraph — extract and fully expand every concrete fact the source provides:\n"
-        "  • Exact instrument name, issuing authority, and jurisdiction.\n"
-        "  • The specific change in full: what the current requirement is and precisely "
-        "what is proposed or now mandated in its place.\n"
-        "  • Full scope — every entity type, product class, asset class, sector, "
-        "or geography explicitly mentioned.\n"
-        "  • All explicit timelines, effective dates, consultation windows, or phase-in "
-        "periods — state each one in full.\n"
-        "  • Penalties, enforcement mechanisms, or sanctions if stated.\n"
-        "  • All figures, thresholds, percentages, or quantitative parameters stated.\n"
-        "  • The issuing body's stated rationale or objective, in their own terms.\n"
+        "  • For regulatory/policy items: exact instrument name, issuing authority, and "
+        "jurisdiction; the specific change in full (what the current requirement is and "
+        "precisely what is proposed or now mandated in its place); full scope — every "
+        "entity type, product class, asset class, sector, or geography explicitly "
+        "mentioned; all explicit timelines, effective dates, consultation windows, or "
+        "phase-in periods; penalties or enforcement mechanisms if stated; all figures, "
+        "thresholds, percentages, or quantitative parameters; the issuing body's stated "
+        "rationale in their own terms.\n"
+        "  • For market/industry items: what the development is, who published it, and "
+        "in what context; every concrete detail the source gives — figures, rankings, "
+        "named companies, specific findings, methodology, scope; which entities, sectors, "
+        "or markets are covered and what specifically changes, is disclosed, or is measured.\n"
         "If the source is thin on a category, omit that category — never write "
         "placeholder sentences. Reach the 60-70 word target by elaborating the facts "
-        "that ARE present, not by padding with generic statements.\n\n"
-        "TIER 2 items → A dense prose paragraph of 60-70 words (the FACTS), "
-        "followed by a separate INDIA IMPACT analysis of 1-2 sentences (see below).\n"
-        "FACTS paragraph — cover: (1) what the development is, who published it, and in "
-        "what context; (2) every concrete detail the source gives — figures, rankings, "
-        "named companies, specific findings, methodology, scope; "
-        "(3) which entities, sectors, or markets are covered and what specifically "
-        "changes, is disclosed, or is measured. Pure fact only in this paragraph.\n\n"
-        "═══ INDIA IMPACT (Tier 1 and Tier 2 only) ═══\n"
+        "that ARE present, not by padding with generic statements. "
+        "Pure fact only in the FACTS paragraph.\n\n"
+        "═══ PART 2: INDIA IMPACT (every item where plausible) ═══\n"
         "After the FACTS paragraph, append 1-2 sentences (wherever the development "
         "plausibly supports it) that analyse how this development impacts ONE — and only "
         "the single most relevant one — of the following angles:\n"
@@ -1504,22 +1582,23 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         "specific figures, dates, or events not supportable from the material. "
         "If the development has no plausible India angle whatsoever (e.g. a purely local "
         "US municipal matter), omit the India impact line rather than forcing one. "
-        "Keep the India impact to 1-2 sentences maximum.\n"
-        "TIER 3 items → set to null. These will be removed from the digest entirely.\n\n"
-        "═══ STEP 3: DIGEST ═══\n"
-        "Write a 4-6 sentence factual briefing that spans ALL Tier 1 and Tier 2 items "
+        "Keep the India impact to 1-2 sentences maximum.\n\n"
+        "═══ PART 3: DIGEST ═══\n"
+        "Write a 4-6 sentence factual briefing that spans ALL items "
         "across every category (Regulatory, Tenders, ESG News). "
         "Do NOT focus on a single article — the digest must reflect the full breadth "
         "of today's items.\n"
-        "Structure: lead with any Tier 1 regulatory or policy developments (instrument, "
-        "issuing body, jurisdiction, scope, dates if stated); then cover Tier 2 market/"
+        "Structure: lead with any regulatory or policy developments (instrument, "
+        "issuing body, jurisdiction, scope, dates if stated); then cover market/"
         "industry themes by grouping related articles into a single factual thread rather "
         "than listing each article individually. End on a concrete fact, not a directive.\n"
-        "If there are no Tier 1 items, cover all Tier 2 items in 4-5 factual sentences "
+        "If there are no regulatory items, cover the market items in 4-5 factual sentences "
         "grouped by theme. Every sentence must name a specific development, organisation, "
         "figure, or jurisdiction from the source material. "
         "No advice, no calls to action, no filler.\n\n"
         "CRITICAL RULES:\n"
+        "• Every numbered item MUST receive a summary string — never null, never "
+        "an empty string, never a skipped key.\n"
         "• In the FACTS paragraph, only report facts explicitly stated in the source. "
         "Never infer, speculate, or add context not in the text. The reasoned comparison "
         "permitted in the 'India impact' line is the SOLE exception, and even there you "
@@ -1531,14 +1610,13 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
         "phrasing. The India impact line states implications and comparisons as analysis "
         "(e.g. 'Indian issuers face a wider disclosure gap than under BRSR Core'), never "
         "as instructions to the reader.\n"
-        "• No negative placeholder sentences for missing information.\n"
-        "• TIER 3 summaries must be JSON null, not the string 'null'.\n\n"
+        "• No negative placeholder sentences for missing information.\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
         "{\n"
         '  "digest_summary": "...",\n'
         '  "article_summaries": {\n'
-        '    "1": "..." or null,\n'
-        '    "2": "..." or null\n'
+        '    "1": "...",\n'
+        '    "2": "..."\n'
         "  }\n"
         "}"
     )
@@ -1602,7 +1680,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
                 if finish_reason == "MAX_TOKENS":
                     print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
                           f"response is truncated. Skipping AI summaries.")
-                    return "", {}, set()
+                    return "", {}
 
                 raw = candidate["content"]["parts"][0]["text"].strip()
                 print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
@@ -1623,7 +1701,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
                 except json.JSONDecodeError as json_err:
                     print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
                     print(f"     Raw response snippet: {raw[:500]}")
-                    return "", {}, set()
+                    return "", {}
 
             except requests.exceptions.RequestException as req_err:
                 if attempt < PER_MODEL_ATTEMPTS:
@@ -1638,34 +1716,30 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, dict, set]:
                 import traceback
                 print(f"  ⚠  AI summary — unexpected error: {exc}")
                 traceback.print_exc()
-                return "", {}, set()
+                return "", {}
 
         if model_success:
             break   # don't try remaining models
 
     if data is None:
         print("  ⚠  AI summary — all models exhausted. Skipping.")
-        return "", {}, set()
+        return "", {}
 
     digest_summary = data.get("digest_summary", "")
     article_summaries = data.get("article_summaries", {})
 
     uid_summaries: dict[str, str] = {}
-    excluded_uids: set[str] = set()
 
     for str_idx, summary in article_summaries.items():
         try:
             idx = int(str_idx) - 1
-            if 0 <= idx < len(rows):
-                if summary:  # Tier 1 or Tier 2 — include with summary
-                    uid_summaries[rows[idx].uid] = summary
-                else:        # null = Tier 3 — exclude from digest entirely
-                    excluded_uids.add(rows[idx].uid)
+            if 0 <= idx < len(rows) and summary:
+                uid_summaries[rows[idx].uid] = summary
         except (ValueError, IndexError):
             pass
 
-    print(f"    ✓ AI triage: {len(uid_summaries)} included, {len(excluded_uids)} excluded (Tier 3)")
-    return digest_summary, uid_summaries, excluded_uids
+    print(f"    ✓ AI summaries: {len(uid_summaries)}/{len(rows)} items summarized")
+    return digest_summary, uid_summaries
 
 
 # ==========================================
@@ -1977,16 +2051,11 @@ def render_ai_digest_block(digest_summary: str) -> str:
 
 
 def build_email(df_new: pd.DataFrame) -> str:
-    # ── AI triage + summaries (single API call for the whole digest) ──────────
-    digest_summary, uid_summaries, excluded_uids = generate_ai_summaries(df_new)
-
-    # Remove Tier 3 items from the rendered digest entirely.
-    # Fallback: if AI triage didn't run (empty excluded_uids), show everything.
-    if excluded_uids:
-        df_render = df_new[~df_new["uid"].isin(excluded_uids)].copy().reset_index(drop=True)
-        print(f"  → Tier 3 filter: {len(df_new)} scraped → {len(df_render)} rendered")
-    else:
-        df_render = df_new
+    # ── AI summaries (single API call; summarization ONLY — never filters) ────
+    # Relevance was already decided deterministically at scrape time
+    # (news_keyword_gate). Every item in df_new is rendered.
+    digest_summary, uid_summaries = generate_ai_summaries(df_new)
+    df_render = df_new
 
     if df_render.empty:
         content = (
