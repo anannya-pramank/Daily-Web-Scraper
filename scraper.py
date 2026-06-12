@@ -107,7 +107,16 @@ TENDER_KEYWORDS = [
     "Net Zero", "Carbon Sequestration", "Scope 1", "Scope 2", "Scope 3", "GHG",
     "Green House Gas", "Green House Gases", "ESG", "ESG Disclosure", "Climate Change",
     "Green Finance", "Sustainable Finance", "BRSR", "Assurance", "Assessment",
-    "Sustainab", "Sustainability", "Carbon Market"
+    "Sustainability", "Sustainable", "Carbon Market",
+    # NOTE: the old "Sustainab" stem was dead weight — whole-word matching
+    # (no trailing letters allowed) meant it could never match "Sustainability".
+    # Advisory/assurance-flavoured terms Indian ESG tenders are actually titled
+    # with (needed now that the fallback scans full CPPP listings rather than
+    # keyword-searching the portal):
+    "Energy Audit", "Carbon Audit", "Environmental Audit", "Sustainability Audit",
+    "Sustainability Report", "Climate Action Plan", "Decarbonisation", "Decarbonization",
+    "Energy Transition", "Renewable Energy", "Green Hydrogen", "Waste to Energy",
+    "Biomass", "Circular Economy", "EV Charging", "Carbon Neutrality",
 ]
 
 REALTIME_KEYWORDS = [
@@ -1493,54 +1502,99 @@ def _extract_deadline(row_text: str, now: datetime):
     return dt, fmt_date(raw)
 
 
-def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -> list[dict]:
-    """
-    Use the NIC eProcurement keyword-search (classic JSP, always server-side
-    rendered, no JavaScript required) to find active ESG tenders.
+# ─────────────────────────────────────────────────────────────────────────────
+# CPPP DRUPAL LISTING ROUTES  (verified captcha-free, server-side paginated)
+# ─────────────────────────────────────────────────────────────────────────────
+# eprocure.gov.in/cppp is a Drupal app with public paginated listings:
+#   cpppdata → Central active tenders, mmpdata → State, gemdata → GeM bids.
+# Each route accepts ?page=N. Rows are fetched once per run and cached;
+# a Playwright render of page 0 is attempted if the static table is empty.
 
-    The same NIC application is served from two hosts:
-      • www.eprocure.gov.in  (primary CPPP host — verified URL structure:
-        /eprocure/app?page=FrontEndLatestActiveTenders&...)
-      • etenders.gov.in      (verified live mirror with the identical
-        /eprocure/app URL structure)
-    eprocure frequently throttles or refuses datacenter IPs; when it fails at
-    the network level for a search term, the SAME query is retried against the
-    etenders mirror. Results are deduped against the caller-supplied `seen`
-    set (modified in-place).
+CPPP_LISTING_BASE = "https://www.eprocure.gov.in/cppp/latestactivetendersnew/"
+CPPP_MAX_PAGES = 6                      # ≈ first 6 pages of newest tenders/route
+_CPPP_ROUTE_ROWS: dict[str, list] = {}  # route → [(row_text, title, href), …]
+
+
+def _cppp_data_rows(soup: BeautifulSoup) -> list[tuple]:
+    """
+    Extract tender data rows from a CPPP listing page, excluding navigation
+    chrome: a data row has a detail link AND at least one date in its text
+    (published / closing / opening dates are always present on data rows).
+    """
+    rows = []
+    for tr in soup.find_all("tr"):
+        text = tr.get_text(separator=" ", strip=True)
+        if len(text) < 20:
+            continue
+        a = tr.find("a", href=True)
+        if not a:
+            continue
+        if not _TENDER_DATE_RE.search(text):
+            continue
+        title = a.get_text(strip=True)
+        rows.append((text, title, a["href"]))
+    return rows
+
+
+def _cppp_route_rows(route: str) -> list[tuple]:
+    """All data rows for a listing route across the first CPPP_MAX_PAGES pages
+    (memoised per run)."""
+    if route in _CPPP_ROUTE_ROWS:
+        return _CPPP_ROUTE_ROWS[route]
+
+    all_rows: list[tuple] = []
+    for page in range(CPPP_MAX_PAGES):
+        url = f"{CPPP_LISTING_BASE}{route}" + (f"?page={page}" if page else "")
+        soup = fetch_soup(url)
+        rows = _cppp_data_rows(soup) if soup else []
+        # First page empty on static fetch → try a JS render once before
+        # concluding the route is empty (table may be late-hydrated).
+        if not rows and page == 0:
+            js_soup = fetch_soup_js(url, wait_selector="table tbody tr")
+            rows = _cppp_data_rows(js_soup) if js_soup else []
+            if rows:
+                print(f"    ✓ CPPP {route}: JS render required")
+        if not rows:
+            break                        # unreachable, or past the last page
+        all_rows.extend(rows)
+
+    print(f"    ✓ CPPP {route}: {len(all_rows)} tender row(s) across "
+          f"{min(page + 1, CPPP_MAX_PAGES)} page(s)"
+          if all_rows else
+          f"    ⚠  CPPP {route}: no tender rows retrieved")
+    _CPPP_ROUTE_ROWS[route] = all_rows
+    return all_rows
+
+
+def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
+                           routes: tuple = ("cpppdata", "mmpdata")) -> list[dict]:
+    """
+    Tender fallback — scans the CPPP Drupal listing routes.
+
+    HISTORY: this used to query the eprocure JSP keyword search
+    (FrontEndLatestActiveTenders&searchString=…). That page now requires a
+    CAPTCHA before listing any tenders (verified 12-Jun-2026: "Provide Captcha
+    and click on Search button to list all active tenders"), so the
+    searchString GET parameter returns only page chrome — every row scanned
+    was navigation markup. CAPTCHAs are not bypassed; the route is dead for
+    automation.
+
+    REPLACEMENT (verified live and captcha-free): the GeM-CPPP Drupal app at
+    eprocure.gov.in/cppp serves server-side paginated listings:
+      • /cppp/latestactivetendersnew/cpppdata?page=N  — Central active tenders
+      • /cppp/latestactivetendersnew/mmpdata?page=N   — State active tenders
+      • /cppp/latestactivetendersnew/gemdata?page=N   — GeM active bids
+        (this also replaces the IP-blocked bidplus.gem.gov.in for GeM bids)
+    We fetch the first CPPP_MAX_PAGES of each requested route, keyword-filter
+    locally against TENDER_KEYWORDS, and keep rows whose nearest date is in
+    the future (active). Pages are cached per run so the three tender sources
+    sharing a route don't re-fetch it.
     """
     hits = []
-    SEARCH_PATH = (
-        "/eprocure/app"
-        "?component=%24SearchString"
-        "&page=FrontEndLatestActiveTenders"
-        "&service=page"
-        "&searchString={kw}"
-        "&Search=Search"
-    )
-    # www host explicitly — gov.in fetches are www-only by policy.
-    EPROCURE_HOSTS = [
-        "https://www.eprocure.gov.in",
-        "https://etenders.gov.in",       # NIC mirror, same app
-    ]
-    # Core ESG clusters — each term covers a family of related tenders
-    TERMS = [
-        "ESG", "sustainability", "carbon", "BRSR",
-        "net+zero", "climate", "GHG", "renewable",
-    ]
-
-    def _parse_search_page(soup, host) -> list[dict]:
-        page_hits = []
-        for row in soup.find_all("tr"):
-            row_text = row.get_text(separator=" ", strip=True)
-            if len(row_text) < 10:
-                continue
-            a = row.find("a", href=True)
-            if not a:
-                continue
-            title = a.get_text(strip=True)
-            href = a["href"]
+    for route in routes:
+        for row_text, title, href in _cppp_route_rows(route):
             if not href.startswith("http"):
-                href = urljoin(host, href)
+                href = urljoin(CPPP_LISTING_BASE, href)
             if href in seen or len(title) < 5:
                 continue
             kw_match = first_keyword_match(f"{title} {row_text}", keywords)
@@ -1550,7 +1604,7 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -
             if deadline_dt is None:
                 continue
             seen.add(href)
-            page_hits.append({
+            hits.append({
                 "org": org,
                 "category": "Tenders",
                 "keyword": kw_match,
@@ -1560,32 +1614,6 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -
                 "snippet": clean_snippet(row_text),
                 "uid": make_uid(href, title),
             })
-        return page_hits
-
-    answered: dict[str, int] = {}        # host → terms it answered
-    rows_scanned = 0
-
-    for term in TERMS:
-        for host in EPROCURE_HOSTS:
-            # Skip hosts whose circuit is already open — _request handles the
-            # message; we just move to the mirror.
-            url = host + SEARCH_PATH.format(kw=requests.utils.quote(term))
-            soup = fetch_soup(url)
-            if soup is None:
-                continue                      # try the mirror for this term
-            answered[host] = answered.get(host, 0) + 1
-            rows_scanned += len(soup.find_all("tr"))
-            hits.extend(_parse_search_page(soup, host))
-            break                             # this term answered — next term
-
-    # Disambiguate "0 matches": was the portal unreachable, or did it answer
-    # and there are genuinely no ESG-matching active tenders today?
-    if answered:
-        host_summary = ", ".join(f"{urlparse(h).netloc}: {n} term(s)" for h, n in answered.items())
-        print(f"    ✓ keyword search answered ({host_summary}; "
-              f"{rows_scanned} rows scanned, {len(hits)} matching active tender(s))")
-    else:
-        print(f"    ⚠  keyword search: no eprocure/etenders host reachable")
     return hits
 
 
@@ -1650,8 +1678,9 @@ def parse_cppp(source: dict) -> list[dict]:
     2. If the direct GET yields 0 keyword-matching rows (page is likely
        AJAX-rendered or returns a near-empty skeleton), fall back to the
        eprocure classic keyword-search API — JSP-rendered, always scrapable.
-    3. The eprocure search is queried for each ESG term cluster, collecting
-       all active tenders (deadline in future) that match TENDER_KEYWORDS.
+    3. Fallback scans the captcha-free CPPP Drupal listing routes
+       (cpppdata/mmpdata) and keyword-filters locally — the old JSP keyword
+       search is permanently captcha-gated.
     """
     org = source["org"]
     keywords = source["keywords"]
@@ -1730,12 +1759,16 @@ def parse_cppp(source: dict) -> list[dict]:
             print(f"    ✓ JS-rendered HTML: {len(hits)} active tender(s)")
             return hits
 
-    # ── Step 2: eprocure classic keyword-search fallback ──────────────────────
+    # ── Step 2: CPPP Drupal listing fallback ─────────────────────────────────
+    # Route by what this source covers: state pages scan mmpdata, everything
+    # else scans the Central cpppdata listing (the old JSP keyword search is
+    # permanently captcha-gated — see _eprocure_keyword_hits docstring).
+    routes = ("mmpdata",) if "mmpdata" in base_url else ("cpppdata",)
     print(f"    ⚠  direct + rendered HTML returned 0 rows — "
-          f"falling back to eprocure/etenders keyword search")
-    fallback = _eprocure_keyword_hits(org, keywords, seen, now)
+          f"scanning CPPP listing route(s) {routes}")
+    fallback = _eprocure_keyword_hits(org, keywords, seen, now, routes=routes)
     if fallback:
-        print(f"    ✓ eprocure search: {len(fallback)} active tender(s)")
+        print(f"    ✓ CPPP listing scan: {len(fallback)} matching active tender(s)")
     hits.extend(fallback)
     return hits
 
@@ -1777,11 +1810,11 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
         PLAYWRIGHT_OK = False
 
     if not PLAYWRIGHT_OK:
-        print("    ⚠  playwright not installed — falling back to eprocure search")
+        print("    ⚠  playwright not installed — scanning CPPP gemdata listing")
         print("       To scrape GeM directly: pip install playwright && playwright install chromium")
-        fallback = _eprocure_keyword_hits(org, keywords, seen, now)
+        fallback = _eprocure_keyword_hits(org, keywords, seen, now, routes=("gemdata",))
         if fallback:
-            print(f"    ✓ eprocure fallback: {len(fallback)} active tender(s)")
+            print(f"    ✓ CPPP gemdata scan: {len(fallback)} matching active bid(s)")
         return fallback
 
     # ── Playwright scrape ─────────────────────────────────────────────────────
@@ -1950,10 +1983,12 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
         return hits
 
     # ── Fallback: eprocure keyword-search ────────────────────────────────────
-    print("    ⚠  Playwright found 0 results — falling back to eprocure search")
-    fallback = _eprocure_keyword_hits(org, keywords, seen, now)
+    # bidplus.gem.gov.in blocks GitHub-runner IPs at the network level; the
+    # CPPP gemdata listing mirrors GeM active bids and is verified reachable.
+    print("    ⚠  Playwright found 0 results — scanning CPPP gemdata listing")
+    fallback = _eprocure_keyword_hits(org, keywords, seen, now, routes=("gemdata",))
     if fallback:
-        print(f"    ✓ eprocure fallback: {len(fallback)} active tender(s)")
+        print(f"    ✓ CPPP gemdata scan: {len(fallback)} matching active bid(s)")
     hits.extend(fallback)
     return hits
 
