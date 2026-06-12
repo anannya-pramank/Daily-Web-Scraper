@@ -921,7 +921,7 @@ def _url_attempt_order(url: str) -> list[str]:
 
 
 def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50,
-             quiet: bool = False):
+             quiet: bool = False, timeout: int | None = None):
     """
     Low-level GET with variant ordering, per-variant retry, gov timeouts and
     the host circuit breaker. Returns a requests.Response or None.
@@ -930,7 +930,8 @@ def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50,
     refused, DNS, timeouts) — an HTTP 403/404 response proves the host is
     alive and must not open the circuit (a probing 404 is an expected outcome,
     not a dead host). `quiet` suppresses per-attempt failure logging (used by
-    feed autodiscovery probes).
+    feed autodiscovery probes). `timeout` overrides the default/gov timeout
+    for known-slow endpoints (e.g. heavy CPPP listing pages).
     """
     fam = _host_family(url)
     if _HOST_FAILURES.get(fam, 0) >= HOST_FAILURE_LIMIT:
@@ -940,7 +941,8 @@ def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50,
             _HOST_FAILURES[fam] += 1
         return None
 
-    timeout = GOV_IN_TIMEOUT if _is_gov_in(url) else DEFAULT_TIMEOUT
+    if timeout is None:
+        timeout = GOV_IN_TIMEOUT if _is_gov_in(url) else DEFAULT_TIMEOUT
     attempts_per_variant = 2 if _is_gov_in(url) else 1
     last_err = None
     network_failure = False
@@ -971,12 +973,13 @@ def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50,
     return None
 
 
-def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | None:
-    """GET a page (with gov-site www/apex fallback + retries) and return soup."""
+def fetch_soup(url: str, extra_headers: dict | None = None,
+               timeout: int | None = None) -> BeautifulSoup | None:
+    """GET a page (with gov www host policy + retries) and return soup."""
     hdrs = {**(extra_headers or {})}
     if "sebi.gov.in" in url:
         hdrs["Referer"] = "https://www.sebi.gov.in/"
-    r = _request(url, headers=hdrs)
+    r = _request(url, headers=hdrs, timeout=timeout)
     if r is not None:
         return BeautifulSoup(r.text, "html.parser")
     return None
@@ -1057,6 +1060,11 @@ def fetch_rss(rss_url: str, quiet: bool = False):
         accept_min_len=100,
         quiet=quiet,
     )
+    # Some WAFs reject the explicit RSS Accept header (observed: greenmoney.com
+    # answering HTTP 415 Unsupported Media Type). Retry once with the session's
+    # default browser Accept before falling back to feedparser's transport.
+    if r is None:
+        r = _request(rss_url, accept_min_len=100, quiet=True)
     if r is not None:
         feed = feedparser.parse(r.content)   # ← bytes, not r.text
         return feed
@@ -1511,7 +1519,10 @@ def _extract_deadline(row_text: str, now: datetime):
 # a Playwright render of page 0 is attempted if the static table is empty.
 
 CPPP_LISTING_BASE = "https://www.eprocure.gov.in/cppp/latestactivetendersnew/"
-CPPP_MAX_PAGES = 6                      # ≈ first 6 pages of newest tenders/route
+CPPP_MAX_PAGES = 40            # hard ceiling only — date cutoff stops earlier
+CPPP_FRESH_DAYS = 3            # scan until published dates fall outside this window
+CPPP_FETCH_TIMEOUT = 75        # listing pages (esp. gemdata) are slow to render
+CPPP_JS_TIMEOUT_MS = 60_000
 _CPPP_ROUTE_ROWS: dict[str, list] = {}  # route → [(row_text, title, href), …]
 
 
@@ -1536,30 +1547,53 @@ def _cppp_data_rows(soup: BeautifulSoup) -> list[tuple]:
     return rows
 
 
+def _row_published_dt(row_text: str):
+    """First date in a listing row = the e-Published Date column (column order
+    on CPPP listings: S.No, e-Published, Closing, Opening, Title, Org)."""
+    m = _TENDER_DATE_RE.search(row_text)
+    return parse_fuzzy_date(m.group(1)) if m else None
+
+
 def _cppp_route_rows(route: str) -> list[tuple]:
-    """All data rows for a listing route across the first CPPP_MAX_PAGES pages
-    (memoised per run)."""
+    """
+    All data rows for a listing route, paginating BY DATE rather than a fixed
+    page count: listings are sorted newest-first, so we keep fetching pages
+    until every parseable published date on a page is older than
+    CPPP_FRESH_DAYS (i.e. we've covered everything new since recent runs),
+    with CPPP_MAX_PAGES as a hard safety ceiling. Memoised per run.
+    """
     if route in _CPPP_ROUTE_ROWS:
         return _CPPP_ROUTE_ROWS[route]
 
+    fresh_cutoff = datetime.now(timezone.utc) - timedelta(days=CPPP_FRESH_DAYS)
     all_rows: list[tuple] = []
+    pages_fetched = 0
+
     for page in range(CPPP_MAX_PAGES):
         url = f"{CPPP_LISTING_BASE}{route}" + (f"?page={page}" if page else "")
-        soup = fetch_soup(url)
+        soup = fetch_soup(url, timeout=CPPP_FETCH_TIMEOUT)
         rows = _cppp_data_rows(soup) if soup else []
         # First page empty on static fetch → try a JS render once before
         # concluding the route is empty (table may be late-hydrated).
         if not rows and page == 0:
-            js_soup = fetch_soup_js(url, wait_selector="table tbody tr")
+            js_soup = fetch_soup_js(url, wait_selector="table tbody tr",
+                                    timeout_ms=CPPP_JS_TIMEOUT_MS)
             rows = _cppp_data_rows(js_soup) if js_soup else []
             if rows:
                 print(f"    ✓ CPPP {route}: JS render required")
         if not rows:
             break                        # unreachable, or past the last page
+        pages_fetched = page + 1
         all_rows.extend(rows)
 
+        # Date cutoff: stop once the whole page is older than the freshness
+        # window. Pages with no parseable dates don't stop the scan.
+        page_dts = [d for d in (_row_published_dt(t) for t, _, _ in rows) if d]
+        if page_dts and max(page_dts) < fresh_cutoff:
+            break
+
     print(f"    ✓ CPPP {route}: {len(all_rows)} tender row(s) across "
-          f"{min(page + 1, CPPP_MAX_PAGES)} page(s)"
+          f"{pages_fetched} page(s) (last {CPPP_FRESH_DAYS} days)"
           if all_rows else
           f"    ⚠  CPPP {route}: no tender rows retrieved")
     _CPPP_ROUTE_ROWS[route] = all_rows
