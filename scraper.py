@@ -58,6 +58,20 @@ MAX_PER_SOURCE = 3
 AI_RELEVANCE_GATE = os.environ.get("AI_RELEVANCE_GATE", "1") != "0"
 AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "4"))
 
+# ── Gemini REST API constants ─────────────────────────────────────────────────
+# Defined here (not in the AI-summary section further down) because the AI
+# tender triage is called from the parsers during the module-level scrape
+# loop, which executes before later definitions are reached.
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
+
+# Primary model first, then fallbacks tried in order when the primary returns
+# 503/429/500 on every retry attempt.  Add or reorder as new models become available.
+GEMINI_MODELS = [
+    "gemini-2.5-flash",   # primary — latest stable Flash
+    "gemini-2.0-flash",   # first fallback
+    "gemini-1.5-flash",   # last-resort stable fallback
+]
+
 
 def parse_fuzzy_date(text: str):
     """
@@ -2383,15 +2397,10 @@ if not df_new.empty:
 # Falls back gracefully (returns empty strings/dict) on any failure so the
 # email pipeline is never blocked.
 
-GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
-
-# Primary model first, then fallbacks tried in order when the primary returns
-# 503/429/500 on every retry attempt.  Add or reorder as new models become available.
-GEMINI_MODELS = [
-    "gemini-2.5-flash",   # primary — latest stable Flash
-    "gemini-2.0-flash",   # first fallback
-    "gemini-1.5-flash",   # last-resort stable fallback
-]
+# NOTE: GEMINI_BASE_URL and GEMINI_MODELS are defined in the config section
+# at the top of the file — they must exist before the module-level scrape
+# loop runs, because the AI tender triage (_gemini_triage_titles) is called
+# from inside the parsers, which execute earlier in the file than this block.
 
 def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
     """
