@@ -7,7 +7,7 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, urlunparse
 from email.utils import parsedate_to_datetime
 
 # Gemini is called via the REST API using requests — no SDK needed
@@ -43,6 +43,14 @@ NEWS_CUTOFF = datetime.now(timezone.utc) - timedelta(hours=72)
 # Max articles returned per source per run — prevents any single outlet from
 # flooding the digest and guarantees diversity across tracked sites.
 MAX_PER_SOURCE = 3
+
+# ── AI relevance gate (semantic QC layer on top of keyword gating) ───────────
+# After the Gemini call, ESG News items with a model relevance score below
+# AI_RELEVANCE_MIN are dropped from the digest. Regulatory and Tenders items
+# are never filtered. Fail-open on API failure. Disable with
+# AI_RELEVANCE_GATE=0; tune the threshold with AI_RELEVANCE_MIN (0-10).
+AI_RELEVANCE_GATE = os.environ.get("AI_RELEVANCE_GATE", "1") != "0"
+AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "4"))
 
 
 def parse_fuzzy_date(text: str):
@@ -556,7 +564,19 @@ NOISE_TITLE_RE = re.compile(
     r"recogni[sz]ed\s+(as|for|by)|"
     r"named\s+(to|among|one\s+of)\b|"             # "Named to Fortune list"
     r"anniversar(y|ies)|celebrates?\b|honou?red\b|"
-    r"webinar|register\s+now|join\s+us\b"
+    r"webinar|register\s+now|join\s+us\b|"
+    # ── promo / engagement formats with no compliance substance ──────────────
+    r"podcast|webcast|fireside\s+chat|live\s*stream|"
+    r"\bq\s*&\s*a\b|in\s+conversation\s+with|interview\s+with|"
+    r"sponsored|partner(ed)?\s+content|press\s+release\s+round-?up|"
+    r"download\s+(our|the)\s+(report|whitepaper|guide)|"
+    r"newsletter|subscribe\b|"
+    # ── listicles & rankings ──────────────────────────────────────────────────
+    r"^(the\s+)?(top|best)\s+\d+|"                # "Top 10 ESG funds…"
+    r"\d+\s+(things|ways|tips|trends|takeaways|questions)\b|"
+    # ── earnings / share-price noise ──────────────────────────────────────────
+    r"(q[1-4]|quarterly|annual)\s+(results|earnings)|earnings\s+call|"
+    r"shares?\s+(rise|fall|jump|drop|surge|slide)|stock\s+(rises|falls|jumps)"
     r")",
     re.IGNORECASE,
 )
@@ -592,12 +612,15 @@ def news_keyword_gate(title: str, body_text: str, keywords: list) -> str | None:
     with if it passes, else None.
 
     Rules:
-      1. Title matching NOISE_TITLE_RE (appointment/award/anniversary/webinar
-         PR) → rejected outright.
+      1. Title matching NOISE_TITLE_RE (appointment/award/anniversary/webinar/
+         podcast/listicle/earnings PR) → rejected outright.
       2. At least one SPECIFIC keyword match (anything not in
          GENERIC_KEYWORDS) → passes, tagged with the most specific match.
-      3. Otherwise, two or more DISTINCT generic matches → passes.
-         A single bare "Sustainability" or "ESG" mention is not enough.
+      3. Otherwise the bar is higher: two or more DISTINCT generic matches AND
+         at least one of them appearing in the TITLE itself. Two passing
+         mentions of "sustainability" and "ESG" buried in boilerplate body
+         text is no longer evidence of relevance — the headline has to be
+         about the topic.
     """
     if NOISE_TITLE_RE.search(title or ""):
         return None
@@ -607,7 +630,10 @@ def news_keyword_gate(title: str, body_text: str, keywords: list) -> str | None:
     specific = [m for m in matches if m.lower() not in GENERIC_KEYWORDS]
     if specific:
         return specific[0]          # longest-first ordering preserved
-    if len(set(m.lower() for m in matches)) >= 2:
+    if (
+        len(set(m.lower() for m in matches)) >= 2
+        and all_keyword_matches(title or "", keywords)
+    ):
         return matches[0]
     return None
 
@@ -780,56 +806,261 @@ def clean_snippet(text: str, max_len: int = 260) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len] + "…" if len(text) > max_len else text
 
-def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | None:
-    """GET a page and return its parsed soup, or None on failure."""
-    try:
-        hdrs = {**(extra_headers or {})}
-        if "sebi.gov.in" in url:
-            hdrs["Referer"] = "https://www.sebi.gov.in/"
-        r = SESSION.get(url, headers=hdrs, timeout=20)
-        if r.status_code == 200 and len(r.text) > 50:
-            return BeautifulSoup(r.text, "html.parser")
-        print(f"    ⚠  HTTP {r.status_code} from {url}")
-    except Exception as e:
-        print(f"    ✗  Fetch error for {url}: {e}")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ROBUST FETCH LAYER
+# ─────────────────────────────────────────────────────────────────────────────
+# Indian government portals (gem.gov.in, eprocure.gov.in, pib.gov.in, …) are
+# slow, geo-sensitive, and frequently refuse connections on the apex domain
+# while serving fine on the www host (or vice-versa). Rules applied here:
+#
+#   • For *.gov.in / *.nic.in URLs, the www variant is tried FIRST, then the
+#     apex (or the reverse if the source URL already carries www). The www
+#     toggle is only applied to apex-style hosts (e.g. gem.gov.in →
+#     www.gem.gov.in); deep subdomains like bidplus.gem.gov.in are never
+#     prefixed.
+#   • Gov portals get a 45 s timeout (they are routinely slower than 20 s)
+#     and one retry per host variant.
+#   • A per-host circuit breaker: after 3 consecutive failed requests to the
+#     same host family in one run, remaining requests to it are skipped
+#     immediately — a dead eprocure must not cost 8 keywords × 45 s.
+
+DEFAULT_TIMEOUT = 20
+GOV_IN_TIMEOUT = 45
+HOST_FAILURE_LIMIT = 3
+
+_HOST_FAILURES: dict[str, int] = {}   # consecutive failures per host family
+
+
+def _host_family(url: str) -> str:
+    """Host with any leading 'www.' stripped — groups www/apex as one family."""
+    host = urlparse(url).netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _is_gov_in(url: str) -> bool:
+    fam = _host_family(url)
+    return fam.endswith(".gov.in") or fam.endswith(".nic.in") or fam in ("gov.in", "nic.in")
+
+
+def _toggle_www(url: str) -> str | None:
+    """
+    Return the www↔apex counterpart of url, or None when not applicable.
+    Only apex-style hosts get a www prefix (gem.gov.in → www.gem.gov.in);
+    deeper subdomains (bidplus.gem.gov.in) return None.
+    """
+    p = urlparse(url)
+    host = p.netloc
+    if host.startswith("www."):
+        alt = host[4:]
+    else:
+        labels = host.split(".")
+        fam = _host_family(url)
+        if fam.endswith(".gov.in") or fam.endswith(".nic.in"):
+            apex_labels = 3          # e.g. gem.gov.in
+        else:
+            apex_labels = 2          # e.g. example.com
+        if len(labels) != apex_labels:
+            return None
+        alt = "www." + host
+    return urlunparse(p._replace(netloc=alt))
+
+
+def _url_attempt_order(url: str) -> list[str]:
+    """
+    Ordered list of URL variants to attempt.
+    Indian gov sites: www variant first, then apex (per operational guidance —
+    several NIC-hosted portals refuse apex-domain connections from datacenter
+    IPs but accept www). Everything else: original URL only; the www toggle is
+    used purely as a failure fallback for gov sites.
+    """
+    alt = _toggle_www(url)
+    if not _is_gov_in(url) or alt is None:
+        return [url]
+    host = urlparse(url).netloc
+    if host.startswith("www."):
+        return [url, alt]            # already www → www first, apex fallback
+    return [alt, url]                # apex given → prefer www, apex fallback
+
+
+def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50):
+    """
+    Low-level GET with variant ordering, per-variant retry, gov timeouts and
+    the host circuit breaker. Returns a requests.Response or None.
+    """
+    fam = _host_family(url)
+    if _HOST_FAILURES.get(fam, 0) >= HOST_FAILURE_LIMIT:
+        print(f"    ⚠  skipping {fam} — circuit open after "
+              f"{_HOST_FAILURES[fam]} consecutive failures this run")
+        return None
+
+    timeout = GOV_IN_TIMEOUT if _is_gov_in(url) else DEFAULT_TIMEOUT
+    attempts_per_variant = 2 if _is_gov_in(url) else 1
+    last_err = None
+
+    for variant in _url_attempt_order(url):
+        for attempt in range(attempts_per_variant):
+            try:
+                r = SESSION.get(variant, headers=headers or {}, timeout=timeout)
+                if r.status_code == 200 and len(r.content) >= accept_min_len:
+                    _HOST_FAILURES[fam] = 0
+                    return r
+                last_err = f"HTTP {r.status_code}, {len(r.content)} bytes from {variant}"
+                # Same-variant retries won't fix a 4xx or an empty 200 body
+                # (SPA shell / blocked response) — move to the next variant.
+                if r.status_code == 200 or 400 <= r.status_code < 500:
+                    break
+            except Exception as e:
+                last_err = f"{variant}: {e}"
+                if attempt < attempts_per_variant - 1:
+                    time.sleep(3)
+    _HOST_FAILURES[fam] = _HOST_FAILURES.get(fam, 0) + 1
+    if last_err:
+        print(f"    ✗  Fetch failed ({last_err})")
     return None
+
+
+def fetch_soup(url: str, extra_headers: dict | None = None) -> BeautifulSoup | None:
+    """GET a page (with gov-site www/apex fallback + retries) and return soup."""
+    hdrs = {**(extra_headers or {})}
+    if "sebi.gov.in" in url:
+        hdrs["Referer"] = "https://www.sebi.gov.in/"
+    r = _request(url, headers=hdrs)
+    if r is not None:
+        return BeautifulSoup(r.text, "html.parser")
+    return None
+
+
+def fetch_soup_js(url: str, wait_selector: str | None = None,
+                  timeout_ms: int = 30_000) -> BeautifulSoup | None:
+    """
+    JS-rendered fetch via Playwright for SPA listing pages (consulting firm
+    insights pages, etc.). Returns rendered-DOM soup, or None when Playwright
+    is unavailable or the navigation fails. Tries the same www/apex variant
+    order as the plain fetcher.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+
+    for variant in _url_attempt_order(url):
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                ctx = browser.new_context(
+                    user_agent=SESSION.headers.get("User-Agent", ""),
+                    viewport={"width": 1366, "height": 900},
+                )
+                page = ctx.new_page()
+                page.goto(variant, wait_until="domcontentloaded", timeout=timeout_ms)
+                # Give client-side rendering a moment; networkidle is too strict
+                # for pages with long-polling analytics.
+                try:
+                    if wait_selector:
+                        page.wait_for_selector(wait_selector, timeout=8_000)
+                    else:
+                        page.wait_for_timeout(4_000)
+                except Exception:
+                    pass
+                html = page.content()
+                browser.close()
+            if html and len(html) > 500:
+                return BeautifulSoup(html, "html.parser")
+        except Exception as e:
+            print(f"    ⚠  Playwright render failed for {variant}: {type(e).__name__}")
+            continue
+    return None
+
+
+# Common feed paths probed (in order) when a configured feed URL fails.
+COMMON_FEED_PATHS = [
+    "/feed/", "/feed", "/rss", "/rss/", "/rss.xml", "/feed.xml",
+    "/feeds/news/", "/index.xml", "/atom.xml", "/news/rss", "/rss/news",
+]
+
+# Per-run cache of discovered feed URLs so a source isn't re-probed.
+_DISCOVERED_FEEDS: dict[str, str | None] = {}
 
 
 def fetch_rss(rss_url: str):
     """
     Fetch an RSS/Atom feed robustly:
-    1. Try SESSION (browser UA, avoids 403s from feedparser's default UA).
-       Pass raw bytes to feedparser so it can detect encoding from the XML
-       declaration — r.text decoded by requests can corrupt multi-byte chars
-       when the Content-Type charset is wrong or absent.
-    2. If SESSION fetch fails (non-200 / network error), fall back to letting
-       feedparser make its own request (handles redirects, etags, etc).
+    1. Try SESSION via the robust fetcher (browser UA, www/apex fallback for
+       gov sites, retries). Pass raw bytes to feedparser so it can detect
+       encoding from the XML declaration.
+    2. If that fails, fall back to letting feedparser make its own request
+       (handles some redirect/etag edge cases).
     Returns a feedparser FeedParserDict or None on total failure.
     """
     if not FEEDPARSER_AVAILABLE:
         return None
-    try:
-        r = SESSION.get(
-            rss_url,
-            headers={"Accept": "application/rss+xml,application/xml,text/xml,*/*;q=0.8"},
-            timeout=20,
-        )
-        if r.status_code == 200 and len(r.content) > 100:
-            feed = feedparser.parse(r.content)   # ← bytes, not r.text
-            if feed.entries:
-                return feed
-            # Feed parsed but empty — still a "success" fetch, return it
-            return feed
-        print(f"    ⚠  RSS HTTP {r.status_code} from {rss_url}")
-    except Exception as e:
-        print(f"    ✗  RSS fetch error for {rss_url}: {e}")
-    # Last resort: feedparser's own transport (handles some edge cases SESSION misses)
+    r = _request(
+        rss_url,
+        headers={"Accept": "application/rss+xml,application/xml,text/xml,*/*;q=0.8"},
+        accept_min_len=100,
+    )
+    if r is not None:
+        feed = feedparser.parse(r.content)   # ← bytes, not r.text
+        return feed
+    # Last resort: feedparser's own transport
     try:
         feed = feedparser.parse(rss_url)
         if not getattr(feed, "bozo", False) or feed.entries:
             return feed
     except Exception:
         pass
+    return None
+
+
+def discover_feed(base_url: str):
+    """
+    Self-healing feed discovery for sites whose configured RSS URL has moved,
+    403s, or 404s (e.g. Environmental Finance, Mondaq, ESG Dive in past runs).
+
+    1. Fetch the homepage and look for <link rel="alternate"
+       type="application/rss+xml|atom+xml"> — the canonical autodiscovery
+       mechanism every CMS supports.
+    2. Failing that, probe a list of common feed paths.
+
+    Returns a working feedparser feed (with entries) or None. Results are
+    memoised per host for the duration of the run.
+    """
+    fam = _host_family(base_url)
+    if fam in _DISCOVERED_FEEDS:
+        found = _DISCOVERED_FEEDS[fam]
+        return fetch_rss(found) if found else None
+
+    candidates: list[str] = []
+
+    soup = fetch_soup(base_url)
+    if soup:
+        for link in soup.find_all("link", rel=lambda v: v and "alternate" in v):
+            ltype = (link.get("type") or "").lower()
+            href = link.get("href") or ""
+            if href and ("rss" in ltype or "atom" in ltype):
+                candidates.append(urljoin(base_url, href))
+        # Visible RSS anchors as a secondary hint
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if re.search(r"(rss|feed|\.xml)(/|$|\?)", href, re.I):
+                candidates.append(urljoin(base_url, href))
+
+    parsed = urlparse(base_url)
+    root = f"{parsed.scheme}://{parsed.netloc}"
+    candidates += [root + p for p in COMMON_FEED_PATHS]
+
+    tried = set()
+    for cand in candidates[:12]:           # hard cap — don't hammer the site
+        if cand in tried:
+            continue
+        tried.add(cand)
+        feed = fetch_rss(cand)
+        if feed and feed.entries:
+            print(f"    ✓ feed autodiscovered: {cand}")
+            _DISCOVERED_FEEDS[fam] = cand
+            return feed
+    _DISCOVERED_FEEDS[fam] = None
     return None
 
 # ==========================================
@@ -927,26 +1158,43 @@ def _scrape_article_links(
 def parse_html(source: dict) -> list[dict]:
     """
     Direct HTML scraper for blog / insights / thought-leadership pages that do
-    not expose a usable RSS feed (the consulting & advisory firms). No RSS and
-    no Google News — fetches the insights page itself and extracts article
-    links via the shared _scrape_article_links strategies, then caps the result
-    at MAX_PER_SOURCE.
+    not expose a usable RSS feed (the consulting & advisory firms).
 
-    NOTE: several of these sites (McKinsey, BCG, Bain, PwC, Deloitte, Accenture,
-    EY, KPMG) render their listing pages client-side. A plain static GET may
-    return a near-empty shell, in which case this parser yields few or no hits.
-    To reliably surface articles from those SPAs, a JS-rendering path
-    (Playwright, as in parse_gem_bidplus) would be needed.
+    Strategy:
+      1. Static GET of the insights page; extract article links via the shared
+         _scrape_article_links strategies.
+      2. If the static page yields 0 hits (most of these sites — McKinsey, BCG,
+         Bain, PwC, Deloitte, Accenture, EY — render their listing pages
+         client-side, so a plain GET returns a near-empty shell), re-fetch the
+         page through Playwright with JS rendering and re-run extraction.
+      3. Cap at MAX_PER_SOURCE, keeping the most relevant hits.
     """
-    hits, seen = [], set()
-    soup = fetch_soup(source["url"])
-    if not soup:
-        print(f"    ⚠  could not fetch {source['url']}")
-        return []
+    seen: set[str] = set()
+    hits: list[dict] = []
 
-    hits = _scrape_article_links(
-        soup, source["url"], source["keywords"], source["org"],
-        source["category"], seen,
+    soup = fetch_soup(source["url"])
+    if soup:
+        hits = _scrape_article_links(
+            soup, source["url"], source["keywords"], source["org"],
+            source["category"], seen,
+        )
+
+    if not hits:
+        js_soup = fetch_soup_js(source["url"])
+        if js_soup is not None:
+            hits = _scrape_article_links(
+                js_soup, source["url"], source["keywords"], source["org"],
+                source["category"], seen,
+            )
+            if hits:
+                print(f"    ✓ JS-rendered scrape: {len(hits)} match(es)")
+        elif soup is None:
+            print(f"    ⚠  could not fetch {source['url']} (static or rendered)")
+            return []
+
+    hits.sort(
+        key=lambda h: relevance_score(h.get("title", ""), h.get("snippet", ""), h.get("org", "")),
+        reverse=True,
     )
     print(f"    ✓ HTML scrape: {len(hits)} match(es) (capped at {MAX_PER_SOURCE})")
     return hits[:MAX_PER_SOURCE]
@@ -1032,16 +1280,23 @@ def parse_rss(source: dict) -> list[dict]:
         return result
 
     # ─ Primary RSS ────────────────────────────────────────────────────────────
-    # Always collect from the primary RSS feed when available.
+    # Always collect from the primary RSS feed when available. If the
+    # configured feed URL fails or returns 0 entries (moved feed, 403, 404),
+    # attempt feed autodiscovery from the site's homepage before giving up —
+    # this self-heals sources like Environmental Finance / Mondaq / ESG Dive
+    # whose feed paths have changed.
     rss_url = source.get("rss")
     if rss_url:
         feed = fetch_rss(rss_url)
+        if not (feed and feed.entries):
+            print(f"    ⚠  primary RSS failed or 0 entries — trying autodiscovery")
+            feed = discover_feed(base_url)
         if feed and feed.entries:
             primary_hits = _process_feed(feed)   # updates shared `seen` set
             hits.extend(primary_hits)
             print(f"    ✓ primary RSS: {len(feed.entries)} entries → {len(primary_hits)} match(es)")
         else:
-            print(f"    ⚠  primary RSS failed or 0 entries")
+            print(f"    ⚠  primary RSS unavailable (incl. autodiscovery)")
 
     # ─ Google News RSS — always try for additional coverage ───────────────────
     # No longer a pure fallback: runs regardless of whether primary RSS succeeded.
@@ -1058,8 +1313,14 @@ def parse_rss(source: dict) -> list[dict]:
         else:
             print(f"    ⚠  Google News RSS also empty")
 
-    # Apply per-source cap: no single outlet dominates the digest.
+    # Apply per-source cap: no single outlet dominates the digest. Hits are
+    # sorted by deterministic relevance first so the cap keeps the BEST
+    # MAX_PER_SOURCE items, not merely the first ones the feed happened to list.
     if hits:
+        hits.sort(
+            key=lambda h: relevance_score(h.get("title", ""), h.get("snippet", ""), h.get("org", "")),
+            reverse=True,
+        )
         return hits[:MAX_PER_SOURCE]
 
     # ─ HTML fallback ───────────────────────────────────────────────────────
@@ -1517,17 +1778,29 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
 
         page.on("response", _on_response)
 
+        consecutive_conn_failures = 0
         for term in ESG_TERMS:
             intercepted.clear()
             search_url = f"{BASE}/advance-search?searchedKeyword={requests.utils.quote(term)}"
 
             try:
-                page.goto(search_url, wait_until="networkidle", timeout=30_000)
+                # domcontentloaded + a short settle wait is more forgiving than
+                # networkidle (which never fires on pages with long-polling).
+                page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
+                page.wait_for_timeout(4_000)
+                consecutive_conn_failures = 0
             except PWTimeout:
                 print(f"    ⚠  GeM timeout for '{term}', skipping")
                 continue
             except Exception as e:
-                print(f"    ⚠  GeM error for '{term}': {e}")
+                msg = str(e)
+                print(f"    ⚠  GeM error for '{term}': {msg.splitlines()[0]}")
+                if "ERR_CONNECTION_REFUSED" in msg or "ERR_NAME_NOT_RESOLVED" in msg:
+                    consecutive_conn_failures += 1
+                    if consecutive_conn_failures >= 2:
+                        print("    ⚠  GeM refusing connections — aborting remaining "
+                              "terms, will use eprocure fallback")
+                        break
                 continue
 
             # ── Path 1: JSON interception ─────────────────────────────────
@@ -1605,9 +1878,29 @@ df_today = pd.DataFrame(all_results) if all_results else pd.DataFrame(
 if not df_today.empty:
     before = len(df_today)
     df_today = df_today.drop_duplicates(subset="uid", keep="first").reset_index(drop=True)
+
+    # Near-duplicate TITLE dedup across sources: the same story is frequently
+    # syndicated to several tracked outlets (and surfaces again via Google
+    # News with a different URL, defeating URL-based dedup). Normalise the
+    # title — lowercase, alphanumerics only, first 90 chars — and keep one
+    # copy per story. Applied to ESG News only; tender/SEBI rows can
+    # legitimately share near-identical titles.
+    def _norm_title(t: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", str(t).lower()).strip()[:90]
+
+    df_today["_tnorm"] = df_today["title"].map(_norm_title)
+    is_news = df_today["category"] == "ESG News"
+    news_dd = df_today[is_news].drop_duplicates(subset="_tnorm", keep="first")
+    df_today = (
+        pd.concat([news_dd, df_today[~is_news]])
+        .sort_index()
+        .drop(columns="_tnorm")
+        .reset_index(drop=True)
+    )
+
     dupes_dropped = before - len(df_today)
     if dupes_dropped:
-        print(f"  Cross-query duplicates removed: {dupes_dropped}")
+        print(f"  Cross-query/syndication duplicates removed: {dupes_dropped}")
 
 if os.path.exists(HISTORY_PATH) and not df_today.empty:
     df_history = pd.read_csv(HISTORY_PATH)
@@ -1686,25 +1979,31 @@ GEMINI_MODELS = [
     "gemini-1.5-flash",   # last-resort stable fallback
 ]
 
-def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
+def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
     """
-    SUMMARIZATION ONLY. The API never filters, ranks, or excludes items —
-    relevance is decided deterministically at scrape time (news_keyword_gate).
-    Every item passed in gets a summary; if the API call fails, the email
-    still renders with all items, just without Overview blocks.
+    Summarization + relevance scoring in a single API call.
+
+    Deterministic keyword gating already happened at scrape time
+    (news_keyword_gate). The model adds a second, semantic quality layer:
+    each item receives a 0-10 relevance score; downstream, ESG News items
+    scoring below AI_RELEVANCE_MIN are dropped from the digest. The gate is
+    FAIL-OPEN — if the API call fails or an item has no score, the item is
+    kept and the email still renders with all items (just without Overview
+    blocks).
 
     Returns:
         india_glance    : str   – 2-4 sentence "ESG in India at a Glance" brief
         global_brief    : str   – 3-5 sentence global developments brief
         uid_summaries   : dict  – {uid: summary} for every item
+        uid_relevance   : dict  – {uid: int 0-10} model relevance scores
     """
     if df_new.empty:
-        return "", "", {}
+        return "", "", {}, {}
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         print("  ⚠  GEMINI_API_KEY not set — skipping AI summaries.")
-        return "", "", {}
+        return "", "", {}, {}
 
     print("  → Generating AI summaries via Gemini REST API…")
 
@@ -1724,8 +2023,28 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
         f"Below are {len(rows)} items scraped today:\n\n"
         + "\n".join(numbered)
         + "\n\n"
-        "Your ONLY job is to summarize. Do not select, rank, exclude, or skip any item — "
-        "write a summary for EVERY numbered item.\n\n"
+        "You have two jobs: (A) score the relevance of every item, and "
+        "(B) summarize every item. Write a summary AND a relevance score for "
+        "EVERY numbered item — never skip one.\n\n"
+        "═══ PART 0: RELEVANCE SCORES ═══\n"
+        "For each numbered item, assign an integer relevance score from 0 to 10 "
+        "reflecting its value to in-house counsel and compliance officers tracking "
+        "ESG regulation, disclosure obligations, carbon markets, and sustainable "
+        "finance — with particular weight on anything touching India.\n"
+        "  9-10: binding regulatory developments, new/amended disclosure rules, "
+        "enforcement actions, or India-specific regulatory/policy changes "
+        "(SEBI, RBI, BRSR, LODR, CCTS, CBAM impact on Indian exporters, etc.).\n"
+        "  6-8: significant policy proposals, consultations, major standard-setter "
+        "moves (ISSB, EFRAG), large-scale market developments with compliance "
+        "implications, substantial carbon-market or taxonomy developments.\n"
+        "  4-5: notable but non-binding industry research, sizeable corporate "
+        "commitments or transactions with sector-wide relevance.\n"
+        "  0-3: single-company PR with no regulatory angle, product promotion, "
+        "opinion/thought-leadership with no new facts, event coverage, generic "
+        "sustainability commentary, or items only tangentially about ESG.\n"
+        "Score on substance, not headline drama. Items in the [Regulatory] or "
+        "[Tenders] categories still receive a score but are never filtered, so "
+        "score them on the same rubric.\n\n"
         "═══ PART 1: PER-ITEM SUMMARIES ═══\n"
         "TARGET LENGTH FOR ALL SUMMARIES: 60-70 words. This is a hard target — "
         "do not stop at 30 words because the source is thin; use all available facts "
@@ -1810,6 +2129,10 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
         "{\n"
         '  "india_glance": "...",\n'
         '  "global_brief": "...",\n'
+        '  "relevance_scores": {\n'
+        '    "1": 8,\n'
+        '    "2": 3\n'
+        "  },\n"
         '  "article_summaries": {\n'
         '    "1": "...",\n'
         '    "2": "..."\n'
@@ -1876,7 +2199,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
                 if finish_reason == "MAX_TOKENS":
                     print(f"  ⚠  Gemini hit output token limit (MAX_TOKENS) — "
                           f"response is truncated. Skipping AI summaries.")
-                    return "", "", {}
+                    return "", "", {}, {}
 
                 raw = candidate["content"]["parts"][0]["text"].strip()
                 print(f"    [GEMINI] raw response (first 300 chars): {raw[:300]}")
@@ -1897,7 +2220,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
                 except json.JSONDecodeError as json_err:
                     print(f"  ⚠  AI summary — JSON parse failed: {json_err}")
                     print(f"     Raw response snippet: {raw[:500]}")
-                    return "", "", {}
+                    return "", "", {}, {}
 
             except requests.exceptions.RequestException as req_err:
                 if attempt < PER_MODEL_ATTEMPTS:
@@ -1912,14 +2235,14 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
                 import traceback
                 print(f"  ⚠  AI summary — unexpected error: {exc}")
                 traceback.print_exc()
-                return "", "", {}
+                return "", "", {}, {}
 
         if model_success:
             break   # don't try remaining models
 
     if data is None:
         print("  ⚠  AI summary — all models exhausted. Skipping.")
-        return "", "", {}
+        return "", "", {}, {}
 
     india_glance = data.get("india_glance", "") or ""
     global_brief = data.get("global_brief", "") or ""
@@ -1928,8 +2251,10 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
     if not (india_glance or global_brief):
         global_brief = data.get("digest_summary", "") or ""
     article_summaries = data.get("article_summaries", {})
+    relevance_scores = data.get("relevance_scores", {})
 
     uid_summaries: dict[str, str] = {}
+    uid_relevance: dict[str, int] = {}
 
     for str_idx, summary in article_summaries.items():
         try:
@@ -1939,9 +2264,18 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict]:
         except (ValueError, IndexError):
             pass
 
-    print(f"    ✓ AI summaries: {len(uid_summaries)}/{len(rows)} items summarized "
+    for str_idx, score in (relevance_scores or {}).items():
+        try:
+            idx = int(str_idx) - 1
+            if 0 <= idx < len(rows):
+                uid_relevance[rows[idx].uid] = max(0, min(10, int(score)))
+        except (ValueError, TypeError, IndexError):
+            pass
+
+    print(f"    ✓ AI summaries: {len(uid_summaries)}/{len(rows)} items summarized, "
+          f"{len(uid_relevance)} scored "
           f"(india_glance: {'yes' if india_glance else 'empty'})")
-    return india_glance, global_brief, uid_summaries
+    return india_glance, global_brief, uid_summaries, uid_relevance
 
 
 # ==========================================
@@ -2325,11 +2659,34 @@ def render_ai_digest_block(india_glance: str, global_brief: str) -> str:
 
 
 def build_email(df_new: pd.DataFrame) -> str:
-    # ── AI summaries (single API call; summarization ONLY — never filters) ────
-    # Relevance was already decided deterministically at scrape time
-    # (news_keyword_gate). Every item in df_new is rendered.
-    india_glance, global_brief, uid_summaries = generate_ai_summaries(df_new)
+    # ── AI summaries + semantic relevance gate (single API call) ──────────────
+    # Deterministic keyword filtering happened at scrape time. The model adds
+    # a semantic quality layer: ESG News items scoring below AI_RELEVANCE_MIN
+    # are dropped from the rendered digest. Regulatory and Tenders are NEVER
+    # filtered. Fail-open: unscored items (or a failed API call) keep
+    # everything, so a Gemini outage degrades to the old behaviour.
+    india_glance, global_brief, uid_summaries, uid_relevance = generate_ai_summaries(df_new)
+
     df_render = df_new
+    if (
+        AI_RELEVANCE_GATE
+        and uid_relevance
+        and not df_new.empty
+    ):
+        def _keep(row) -> bool:
+            if row["category"] != "ESG News":
+                return True
+            score = uid_relevance.get(row["uid"])
+            return score is None or score >= AI_RELEVANCE_MIN
+
+        mask = df_new.apply(_keep, axis=1)
+        dropped = df_new[~mask]
+        if not dropped.empty:
+            print(f"  AI relevance gate: dropped {len(dropped)} low-relevance item(s) "
+                  f"(score < {AI_RELEVANCE_MIN}):")
+            for _, r in dropped.iterrows():
+                print(f"    − [{uid_relevance.get(r['uid'], '?')}] {r['title'][:80]}")
+        df_render = df_new[mask].reset_index(drop=True)
 
     if df_render.empty:
         content = (
