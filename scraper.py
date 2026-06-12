@@ -1014,7 +1014,8 @@ def fetch_soup_js(url: str, wait_selector: str | None = None,
             if html and len(html) > 500:
                 return BeautifulSoup(html, "html.parser")
         except Exception as e:
-            print(f"    ⚠  Playwright render failed for {variant}: {type(e).__name__}")
+            msg = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
+            print(f"    ⚠  Playwright render failed for {variant}: {msg}")
             continue
     return None
 
@@ -1561,6 +1562,9 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -
             })
         return page_hits
 
+    answered: dict[str, int] = {}        # host → terms it answered
+    rows_scanned = 0
+
     for term in TERMS:
         for host in EPROCURE_HOSTS:
             # Skip hosts whose circuit is already open — _request handles the
@@ -1569,8 +1573,19 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -
             soup = fetch_soup(url)
             if soup is None:
                 continue                      # try the mirror for this term
+            answered[host] = answered.get(host, 0) + 1
+            rows_scanned += len(soup.find_all("tr"))
             hits.extend(_parse_search_page(soup, host))
             break                             # this term answered — next term
+
+    # Disambiguate "0 matches": was the portal unreachable, or did it answer
+    # and there are genuinely no ESG-matching active tenders today?
+    if answered:
+        host_summary = ", ".join(f"{urlparse(h).netloc}: {n} term(s)" for h, n in answered.items())
+        print(f"    ✓ keyword search answered ({host_summary}; "
+              f"{rows_scanned} rows scanned, {len(hits)} matching active tender(s))")
+    else:
+        print(f"    ⚠  keyword search: no eprocure/etenders host reachable")
     return hits
 
 
