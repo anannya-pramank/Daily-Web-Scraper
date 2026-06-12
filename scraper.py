@@ -67,9 +67,21 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/"
 # Primary model first, then fallbacks tried in order when the primary returns
 # 503/429/500 on every retry attempt.  Add or reorder as new models become available.
 GEMINI_MODELS = [
-    "gemini-2.5-flash",   # primary — latest stable Flash
-    "gemini-2.0-flash",   # first fallback
-    "gemini-1.5-flash",   # last-resort stable fallback
+    "gemini-2.5-flash",       # primary — latest stable Flash
+    "gemini-2.0-flash",       # first fallback
+    "gemini-2.5-flash-lite",  # last-resort fallback (cheap, high quota)
+    # gemini-1.5-flash REMOVED: retired by Google, returns 404 (verified
+    # 12-Jun-2026 run log) — it only wasted retry sleeps in the chain.
+]
+
+# Triage uses a DIFFERENT model order than the summaries call. Free-tier
+# Gemini rate limits are per-model: in the 12-Jun run the triage chunks
+# exhausted 2.5-flash/2.0-flash quota and the end-of-run summaries call got
+# 429'd into skipping entirely. Putting triage on flash-lite first keeps the
+# two features in separate quota buckets.
+GEMINI_TRIAGE_MODELS = [
+    "gemini-2.5-flash-lite",  # fast, cheap, generous quota — ideal for classification
+    "gemini-2.0-flash",
 ]
 
 
@@ -1714,6 +1726,12 @@ def _cppp_route_rows(route: str) -> list[tuple]:
 # matches. FAIL-OPEN: any API failure leaves the keyword-only behaviour.
 AI_TENDER_TRIAGE = os.environ.get("AI_TENDER_TRIAGE", "1") != "0"
 AI_TRIAGE_CHUNK = 250                       # titles per Gemini call (safety)
+# Hard wall-clock budget for ALL triage calls in a run. Triage is an
+# enhancement layer: once the budget is spent (slow/failing API), it switches
+# itself off for the remainder of the run and the keyword filter carries on
+# alone. Prevents the 15-min hangs seen when calls time out per chunk × route.
+AI_TRIAGE_TIME_BUDGET = int(os.environ.get("AI_TRIAGE_TIME_BUDGET", "240"))
+_AI_TRIAGE_STATE = {"spent": 0.0, "off": False}
 _CPPP_AI_FLAGS: dict[str, dict[int, str]] = {}   # route → {row_idx: short tag}
 
 
@@ -1721,11 +1739,15 @@ def _gemini_triage_titles(numbered_titles: list[str]) -> dict[int, str]:
     """
     One batched relevance call: send numbered tender titles, get back
     {index: short_tag} for the relevant ones. Returns {} on any failure.
-    Mirrors generate_ai_summaries' model-fallback pattern, but lighter
-    (2 attempts per model — this is an enhancement layer, not critical path).
+
+    Bounded hard: one attempt per model, 60s timeout, and a run-wide
+    wall-clock budget (AI_TRIAGE_TIME_BUDGET) — once spent, all further
+    triage this run is skipped. Thinking is disabled for 2.5-series models
+    (thinkingBudget: 0): classification doesn't need it, and thought tokens
+    otherwise eat the small maxOutputTokens budget and truncate the JSON.
     """
     api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key or not numbered_titles:
+    if not api_key or not numbered_titles or _AI_TRIAGE_STATE["off"]:
         return {}
 
     prompt = (
@@ -1751,29 +1773,36 @@ def _gemini_triage_titles(numbered_titles: list[str]) -> dict[int, str]:
         "where i is the title number and tag is a 2-4 word topic label."
     )
 
-    RETRYABLE = {429, 500, 503}
-    for model in GEMINI_MODELS:
-        api_url = f"{GEMINI_BASE_URL}{model}:generateContent"
-        for attempt in (1, 2):
+    started = time.monotonic()
+    try:
+        for model in GEMINI_TRIAGE_MODELS:
+            # Budget check between models too — a single 60s timeout can
+            # already exceed what's left.
+            if _AI_TRIAGE_STATE["spent"] + (time.monotonic() - started) > AI_TRIAGE_TIME_BUDGET:
+                break
+            api_url = f"{GEMINI_BASE_URL}{model}:generateContent"
+            gen_cfg = {
+                "responseMimeType": "application/json",
+                "maxOutputTokens": 8192,
+            }
+            # 2.5-series models think by default; thought tokens count against
+            # maxOutputTokens and a classification task doesn't need them.
+            # Only sent to 2.5 models — older models reject unknown fields.
+            if "2.5" in model:
+                gen_cfg["thinkingConfig"] = {"thinkingBudget": 0}
             try:
                 resp = requests.post(
                     api_url,
                     params={"key": api_key},
                     json={
                         "contents": [{"parts": [{"text": prompt}]}],
-                        "generationConfig": {
-                            "responseMimeType": "application/json",
-                            "maxOutputTokens": 4096,
-                        },
+                        "generationConfig": gen_cfg,
                     },
-                    timeout=90,
+                    timeout=60,
                 )
-                if resp.status_code in RETRYABLE:
-                    if attempt == 1:
-                        time.sleep(10)
-                        continue
-                    break                      # next model
-                resp.raise_for_status()
+                if resp.status_code != 200:
+                    print(f"    ⚠  AI triage {model}: HTTP {resp.status_code} — next model")
+                    continue
                 raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
                 if raw.startswith("```"):
                     raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
@@ -1788,10 +1817,16 @@ def _gemini_triage_titles(numbered_titles: list[str]) -> dict[int, str]:
                 return out
             except Exception as exc:
                 msg = str(exc).splitlines()[0][:120] if str(exc) else type(exc).__name__
-                print(f"    ⚠  AI triage call failed ({model}, attempt {attempt}): {msg}")
-                if attempt == 2:
-                    break                      # next model
-    return {}
+                print(f"    ⚠  AI triage call failed ({model}): {msg} — next model")
+                continue
+        return {}
+    finally:
+        _AI_TRIAGE_STATE["spent"] += time.monotonic() - started
+        if _AI_TRIAGE_STATE["spent"] > AI_TRIAGE_TIME_BUDGET and not _AI_TRIAGE_STATE["off"]:
+            _AI_TRIAGE_STATE["off"] = True
+            print(f"    ⚠  AI triage time budget exhausted "
+                  f"({_AI_TRIAGE_STATE['spent']:.0f}s > {AI_TRIAGE_TIME_BUDGET}s) — "
+                  f"keyword-only for the rest of this run")
 
 
 def _cppp_ai_flags(route: str, now: datetime) -> dict[int, str]:
@@ -1814,7 +1849,10 @@ def _cppp_ai_flags(route: str, now: datetime) -> dict[int, str]:
         candidates.append((idx, title[:120]))
 
     if candidates:
+        t0 = time.monotonic()
         for start in range(0, len(candidates), AI_TRIAGE_CHUNK):
+            if _AI_TRIAGE_STATE["off"]:
+                break                          # budget exhausted mid-route
             chunk = candidates[start:start + AI_TRIAGE_CHUNK]
             numbered = [f"{n}. {title}" for n, (_idx, title) in enumerate(chunk, start=1)]
             result = _gemini_triage_titles(numbered)
@@ -1822,7 +1860,7 @@ def _cppp_ai_flags(route: str, now: datetime) -> dict[int, str]:
                 if 1 <= local_n <= len(chunk):
                     flags[chunk[local_n - 1][0]] = tag
         print(f"    ✓ AI triage {route}: {len(flags)} of {len(candidates)} "
-              f"active title(s) flagged relevant")
+              f"active title(s) flagged relevant ({time.monotonic() - t0:.0f}s)")
 
     _CPPP_AI_FLAGS[route] = flags
     return flags
