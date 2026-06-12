@@ -22,6 +22,12 @@ try:
 except ImportError:
     FEEDPARSER_AVAILABLE = False
 
+try:
+    from playwright_stealth import stealth_sync
+    STEALTH_AVAILABLE = True
+except ImportError:
+    STEALTH_AVAILABLE = False
+
 # ==========================================
 # 1. CONFIGURATION
 # ==========================================
@@ -1003,32 +1009,49 @@ def fetch_soup_js(url: str, wait_selector: str | None = None,
         return None
 
     for variant in _url_attempt_order(url):
-        try:
-            with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=True)
-                ctx = browser.new_context(
-                    user_agent=SESSION.headers.get("User-Agent", ""),
-                    viewport={"width": 1366, "height": 900},
-                )
-                page = ctx.new_page()
-                page.goto(variant, wait_until="domcontentloaded", timeout=timeout_ms)
-                # Give client-side rendering a moment; networkidle is too strict
-                # for pages with long-polling analytics.
-                try:
-                    if wait_selector:
-                        page.wait_for_selector(wait_selector, timeout=8_000)
-                    else:
-                        page.wait_for_timeout(4_000)
-                except Exception:
-                    pass
-                html = page.content()
-                browser.close()
-            if html and len(html) > 500:
-                return BeautifulSoup(html, "html.parser")
-        except Exception as e:
-            msg = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
-            print(f"    ⚠  Playwright render failed for {variant}: {msg}")
-            continue
+        # Two passes: normal launch, then (only if the first pass fails with
+        # an HTTP/2 protocol error) a retry with HTTP/2 disabled. Many CDNs
+        # (Akamai, Cloudflare) reset headless Chromium's h2 handshake before
+        # any HTML — and before cookies/stealth patches — even get a chance.
+        for disable_http2 in (False, True):
+            try:
+                with sync_playwright() as pw:
+                    launch_args = ["--disable-http2"] if disable_http2 else []
+                    browser = pw.chromium.launch(headless=True, args=launch_args)
+                    ctx = browser.new_context(
+                        user_agent=SESSION.headers.get("User-Agent", ""),
+                        viewport={"width": 1366, "height": 900},
+                    )
+                    page = ctx.new_page()
+                    if STEALTH_AVAILABLE:
+                        try:
+                            stealth_sync(page)
+                        except Exception:
+                            pass
+                    page.goto(variant, wait_until="domcontentloaded", timeout=timeout_ms)
+                    # Give client-side rendering a moment; networkidle is too strict
+                    # for pages with long-polling analytics.
+                    try:
+                        if wait_selector:
+                            page.wait_for_selector(wait_selector, timeout=8_000)
+                        else:
+                            page.wait_for_timeout(4_000)
+                    except Exception:
+                        pass
+                    html = page.content()
+                    browser.close()
+                if html and len(html) > 500:
+                    return BeautifulSoup(html, "html.parser")
+            except Exception as e:
+                msg = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
+                print(f"    ⚠  Playwright render failed for {variant}"
+                      f"{' (HTTP/2 disabled)' if disable_http2 else ''}: {msg}")
+                # Only worth a second pass if it was specifically an HTTP/2
+                # protocol error — otherwise (e.g. ERR_CONNECTION_REFUSED)
+                # disabling HTTP/2 won't change anything.
+                if disable_http2 or "HTTP2_PROTOCOL_ERROR" not in msg:
+                    break
+                continue
     return None
 
 
