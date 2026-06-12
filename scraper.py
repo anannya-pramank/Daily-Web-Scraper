@@ -1055,7 +1055,43 @@ def fetch_soup_js(url: str, wait_selector: str | None = None,
     return None
 
 
-# Common feed paths probed (in order) when a configured feed URL fails.
+# Jina AI Reader (r.jina.ai) — third-party fetch proxy used as a last-resort
+# fallback for sites that block our direct + Playwright requests outright
+# (e.g. McKinsey's HTTP/2-reset / IP-reputation blocking). Anonymous access
+# only for now: no JINA_API_KEY configured, so this rides the shared free
+# rate limit. Keep this fallback last in the chain — it's the slowest and
+# least reliable of the three.
+JINA_API_KEY = os.environ.get("JINA_API_KEY", "")
+
+
+def fetch_soup_jina(url: str, timeout: int = 30) -> BeautifulSoup | None:
+    """
+    Fetch a URL via the Jina AI Reader proxy (https://r.jina.ai/) and return
+    a BeautifulSoup of the returned HTML, or None on any failure.
+
+    Requests HTML (not Jina's default markdown) via X-Return-Format so the
+    existing _scrape_article_links extraction logic can be reused unchanged.
+    x-no-cache is set so a daily sweep doesn't repeatedly get served a stale
+    same-day cached copy.
+    """
+    headers = {
+        "X-Return-Format": "html",
+        "x-no-cache": "true",
+    }
+    if JINA_API_KEY:
+        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+
+    try:
+        r = requests.get(f"https://r.jina.ai/{url}", headers=headers, timeout=timeout)
+        if r.status_code != 200 or len(r.text) < 500:
+            print(f"    ⚠  Jina Reader fetch failed for {url}: HTTP {r.status_code}, "
+                  f"{len(r.text)} bytes")
+            return None
+        return BeautifulSoup(r.text, "html.parser")
+    except Exception as e:
+        msg = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
+        print(f"    ⚠  Jina Reader fetch failed for {url}: {msg}")
+        return None
 COMMON_FEED_PATHS = [
     "/feed/", "/feed", "/rss", "/rss/", "/rss.xml", "/feed.xml",
     "/feeds/news/", "/index.xml", "/atom.xml", "/news/rss", "/rss/news",
@@ -1256,7 +1292,11 @@ def parse_html(source: dict) -> list[dict]:
          Bain, PwC, Deloitte, Accenture, EY — render their listing pages
          client-side, so a plain GET returns a near-empty shell), re-fetch the
          page through Playwright with JS rendering and re-run extraction.
-      3. Cap at MAX_PER_SOURCE, keeping the most relevant hits.
+      3. If BOTH of the above fail outright (no soup at all — typically a
+         site actively blocking our IP/fingerprint, e.g. McKinsey's HTTP/2
+         resets), fall back to the Jina AI Reader proxy (r.jina.ai), which
+         fetches via different infrastructure and often gets through.
+      4. Cap at MAX_PER_SOURCE, keeping the most relevant hits.
     """
     seen: set[str] = set()
     hits: list[dict] = []
@@ -1277,9 +1317,19 @@ def parse_html(source: dict) -> list[dict]:
             )
             if hits:
                 print(f"    ✓ JS-rendered scrape: {len(hits)} match(es)")
-        elif soup is None:
-            print(f"    ⚠  could not fetch {source['url']} (static or rendered)")
-            return []
+
+        if not hits and soup is None and js_soup is None:
+            jina_soup = fetch_soup_jina(source["url"])
+            if jina_soup is not None:
+                hits = _scrape_article_links(
+                    jina_soup, source["url"], source["keywords"], source["org"],
+                    source["category"], seen,
+                )
+                if hits:
+                    print(f"    ✓ Jina Reader scrape: {len(hits)} match(es)")
+            else:
+                print(f"    ⚠  could not fetch {source['url']} (static, rendered, or Jina)")
+                return []
 
     hits.sort(
         key=lambda h: relevance_score(h.get("title", ""), h.get("snippet", ""), h.get("org", "")),
