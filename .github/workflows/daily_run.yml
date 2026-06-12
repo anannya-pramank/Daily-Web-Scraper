@@ -16,7 +16,7 @@ jobs:
           python-version: '3.11'
       - name: Install Dependencies
         run: |
-          pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright
+          pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright playwright-stealth
 
       - name: Cache Playwright browsers
         id: playwright-cache
