@@ -258,6 +258,9 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
+        # /feed/ is the correct WordPress feed (verified via feed directories)
+        # but the site's bot protection intermittently serves it empty to
+        # datacenter IPs — Google News fallback covers those runs.
         "org": "GreenBiz / Trellis",
         "url": "https://trellis.net/",
         "rss": "https://trellis.net/feed/",
@@ -310,9 +313,13 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
+        # Cloudflare bot-protection returns 403 on the feed AND the homepage
+        # (verified) — direct fetching is pointless. Google News site-scoped
+        # search is the only viable path; no_html skips the HTML fallback.
         "org": "ESG Investing",
         "url": "https://www.esginvesting.co.uk/",
-        "rss": "https://www.esginvesting.co.uk/feed/",
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:esginvesting.co.uk&hl=en-US&gl=US&ceid=US:en"
@@ -322,9 +329,12 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
+        # rss.php and the homepage both return bot-protection 403s (verified)
+        # — Google News site-scoped search only; no_html skips HTML fallback.
         "org": "Financial Advisor Magazine",
         "url": "https://www.fa-mag.com/",
-        "rss": "https://www.fa-mag.com/rss.php",
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:fa-mag.com+ESG+OR+sustainability+OR+carbon"
@@ -335,9 +345,14 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
+        # Subscription/paywalled site — the old /content/news/rss path 404s
+        # and no public feed is advertised (verified: site describes itself
+        # as a paid-subscription service with email alerts only). Google News
+        # indexes its headlines, which is the only open route to its output.
         "org": "Environmental Finance",
         "url": "https://www.environmental-finance.com/",
-        "rss": "https://www.environmental-finance.com/content/news/rss",
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:environmental-finance.com&hl=en-US&gl=US&ceid=US:en"
@@ -359,9 +374,13 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
+        # The /rss/ESGandSustainability path 404s and Mondaq does not expose a
+        # discoverable replacement (content is registration-gated). Google
+        # News indexes Mondaq articles reliably — use it as the sole path.
         "org": "Mondaq",
         "url": "https://www.mondaq.com/",
-        "rss": "https://www.mondaq.com/rss/ESGandSustainability",
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:mondaq.com+ESG+OR+sustainability+OR+carbon&hl=en-US&gl=US&ceid=US:en"
@@ -866,44 +885,65 @@ def _toggle_www(url: str) -> str | None:
     return urlunparse(p._replace(netloc=alt))
 
 
+# Gov hosts verified to serve correctly on the bare host — exempt from the
+# www rewrite. (etenders.gov.in confirmed live at the bare host with the NIC
+# /eprocure/app URL structure; a www variant is unverified.)
+GOV_WWW_EXCEPTIONS = {"etenders.gov.in"}
+
+
 def _url_attempt_order(url: str) -> list[str]:
     """
     Ordered list of URL variants to attempt.
-    Indian gov sites: www variant first, then apex (per operational guidance —
-    several NIC-hosted portals refuse apex-domain connections from datacenter
-    IPs but accept www). Everything else: original URL only; the www toggle is
-    used purely as a failure fallback for gov sites.
+
+    Indian gov sites: fetched via the www host ONLY — apex-style gov.in URLs
+    (gem.gov.in, eprocure.gov.in, pib.gov.in, …) are rewritten to their www
+    counterpart and the apex is never contacted (several NIC-hosted portals
+    refuse apex-domain connections from datacenter IPs). Deep subdomains
+    (bidplus.gem.gov.in) and hosts in GOV_WWW_EXCEPTIONS are left untouched.
+    Non-gov URLs are used as-is.
     """
-    alt = _toggle_www(url)
-    if not _is_gov_in(url) or alt is None:
+    if not _is_gov_in(url):
         return [url]
     host = urlparse(url).netloc
-    if host.startswith("www."):
-        return [url, alt]            # already www → www first, apex fallback
-    return [alt, url]                # apex given → prefer www, apex fallback
+    if host.startswith("www.") or host.lower() in GOV_WWW_EXCEPTIONS:
+        return [url]
+    alt = _toggle_www(url)            # None for deep subdomains
+    return [alt] if alt else [url]
 
 
-def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50):
+def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50,
+             quiet: bool = False):
     """
     Low-level GET with variant ordering, per-variant retry, gov timeouts and
     the host circuit breaker. Returns a requests.Response or None.
+
+    The circuit breaker counts ONLY network-level failures (connection
+    refused, DNS, timeouts) — an HTTP 403/404 response proves the host is
+    alive and must not open the circuit (a probing 404 is an expected outcome,
+    not a dead host). `quiet` suppresses per-attempt failure logging (used by
+    feed autodiscovery probes).
     """
     fam = _host_family(url)
     if _HOST_FAILURES.get(fam, 0) >= HOST_FAILURE_LIMIT:
-        print(f"    ⚠  skipping {fam} — circuit open after "
-              f"{_HOST_FAILURES[fam]} consecutive failures this run")
+        if _HOST_FAILURES.get(fam) == HOST_FAILURE_LIMIT:   # announce once
+            print(f"    ⚠  {fam} unreachable {HOST_FAILURE_LIMIT}× — "
+                  f"skipping remaining requests to it this run")
+            _HOST_FAILURES[fam] += 1
         return None
 
     timeout = GOV_IN_TIMEOUT if _is_gov_in(url) else DEFAULT_TIMEOUT
     attempts_per_variant = 2 if _is_gov_in(url) else 1
     last_err = None
+    network_failure = False
 
     for variant in _url_attempt_order(url):
         for attempt in range(attempts_per_variant):
             try:
                 r = SESSION.get(variant, headers=headers or {}, timeout=timeout)
+                # Any HTTP response at all → host is alive; reset the breaker.
+                _HOST_FAILURES[fam] = 0
+                network_failure = False
                 if r.status_code == 200 and len(r.content) >= accept_min_len:
-                    _HOST_FAILURES[fam] = 0
                     return r
                 last_err = f"HTTP {r.status_code}, {len(r.content)} bytes from {variant}"
                 # Same-variant retries won't fix a 4xx or an empty 200 body
@@ -912,10 +952,12 @@ def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50)
                     break
             except Exception as e:
                 last_err = f"{variant}: {e}"
+                network_failure = True
                 if attempt < attempts_per_variant - 1:
                     time.sleep(3)
-    _HOST_FAILURES[fam] = _HOST_FAILURES.get(fam, 0) + 1
-    if last_err:
+    if network_failure:
+        _HOST_FAILURES[fam] = _HOST_FAILURES.get(fam, 0) + 1
+    if last_err and not quiet:
         print(f"    ✗  Fetch failed ({last_err})")
     return None
 
@@ -942,6 +984,10 @@ def fetch_soup_js(url: str, wait_selector: str | None = None,
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
+        return None
+
+    # Host already proven unreachable this run — don't burn a browser launch.
+    if _HOST_FAILURES.get(_host_family(url), 0) >= HOST_FAILURE_LIMIT:
         return None
 
     for variant in _url_attempt_order(url):
@@ -983,12 +1029,12 @@ COMMON_FEED_PATHS = [
 _DISCOVERED_FEEDS: dict[str, str | None] = {}
 
 
-def fetch_rss(rss_url: str):
+def fetch_rss(rss_url: str, quiet: bool = False):
     """
     Fetch an RSS/Atom feed robustly:
-    1. Try SESSION via the robust fetcher (browser UA, www/apex fallback for
-       gov sites, retries). Pass raw bytes to feedparser so it can detect
-       encoding from the XML declaration.
+    1. Try SESSION via the robust fetcher (browser UA, www host for gov sites,
+       retries). Pass raw bytes to feedparser so it can detect encoding from
+       the XML declaration.
     2. If that fails, fall back to letting feedparser make its own request
        (handles some redirect/etag edge cases).
     Returns a feedparser FeedParserDict or None on total failure.
@@ -999,6 +1045,7 @@ def fetch_rss(rss_url: str):
         rss_url,
         headers={"Accept": "application/rss+xml,application/xml,text/xml,*/*;q=0.8"},
         accept_min_len=100,
+        quiet=quiet,
     )
     if r is not None:
         feed = feedparser.parse(r.content)   # ← bytes, not r.text
@@ -1055,11 +1102,12 @@ def discover_feed(base_url: str):
         if cand in tried:
             continue
         tried.add(cand)
-        feed = fetch_rss(cand)
+        feed = fetch_rss(cand, quiet=True)   # probe 404s are expected, not errors
         if feed and feed.entries:
             print(f"    ✓ feed autodiscovered: {cand}")
             _DISCOVERED_FEEDS[fam] = cand
             return feed
+    print(f"    ⚠  no working feed found on {fam} ({len(tried)} candidates probed)")
     _DISCOVERED_FEEDS[fam] = None
     return None
 
@@ -1324,9 +1372,10 @@ def parse_rss(source: dict) -> list[dict]:
         return hits[:MAX_PER_SOURCE]
 
     # ─ HTML fallback ───────────────────────────────────────────────────────
-    # Skip for Google News primary sources: their base_url is news.google.com,
-    # which is not HTML-scrapeable in the conventional sense.
-    if source.get("gnews"):
+    # Skip for Google News primary sources (news.google.com isn't HTML-
+    # scrapeable) and for sources flagged no_html (bot-protected or paywalled
+    # sites where the homepage 403s or yields nothing useful — verified).
+    if source.get("gnews") or source.get("no_html"):
         return []
 
     soup = fetch_soup(base_url)
@@ -1445,29 +1494,41 @@ def _extract_deadline(row_text: str, now: datetime):
 
 def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -> list[dict]:
     """
-    Use eprocure.gov.in's classic JSP keyword-search (always server-side rendered,
-    no JavaScript required) to find active ESG tenders.  Results are deduped
-    against the caller-supplied `seen` set (modified in-place).
+    Use the NIC eProcurement keyword-search (classic JSP, always server-side
+    rendered, no JavaScript required) to find active ESG tenders.
+
+    The same NIC application is served from two hosts:
+      • www.eprocure.gov.in  (primary CPPP host — verified URL structure:
+        /eprocure/app?page=FrontEndLatestActiveTenders&...)
+      • etenders.gov.in      (verified live mirror with the identical
+        /eprocure/app URL structure)
+    eprocure frequently throttles or refuses datacenter IPs; when it fails at
+    the network level for a search term, the SAME query is retried against the
+    etenders mirror. Results are deduped against the caller-supplied `seen`
+    set (modified in-place).
     """
     hits = []
-    SEARCH_URL = (
-        "https://eprocure.gov.in/eprocure/app"
+    SEARCH_PATH = (
+        "/eprocure/app"
         "?component=%24SearchString"
         "&page=FrontEndLatestActiveTenders"
         "&service=page"
         "&searchString={kw}"
         "&Search=Search"
     )
+    # www host explicitly — gov.in fetches are www-only by policy.
+    EPROCURE_HOSTS = [
+        "https://www.eprocure.gov.in",
+        "https://etenders.gov.in",       # NIC mirror, same app
+    ]
     # Core ESG clusters — each term covers a family of related tenders
     TERMS = [
         "ESG", "sustainability", "carbon", "BRSR",
         "net+zero", "climate", "GHG", "renewable",
     ]
-    for term in TERMS:
-        url = SEARCH_URL.format(kw=requests.utils.quote(term))
-        soup = fetch_soup(url)
-        if not soup:
-            continue
+
+    def _parse_search_page(soup, host) -> list[dict]:
+        page_hits = []
         for row in soup.find_all("tr"):
             row_text = row.get_text(separator=" ", strip=True)
             if len(row_text) < 10:
@@ -1478,7 +1539,7 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -
             title = a.get_text(strip=True)
             href = a["href"]
             if not href.startswith("http"):
-                href = urljoin("https://eprocure.gov.in", href)
+                href = urljoin(host, href)
             if href in seen or len(title) < 5:
                 continue
             kw_match = first_keyword_match(f"{title} {row_text}", keywords)
@@ -1488,7 +1549,7 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -
             if deadline_dt is None:
                 continue
             seen.add(href)
-            hits.append({
+            page_hits.append({
                 "org": org,
                 "category": "Tenders",
                 "keyword": kw_match,
@@ -1498,6 +1559,18 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime) -
                 "snippet": clean_snippet(row_text),
                 "uid": make_uid(href, title),
             })
+        return page_hits
+
+    for term in TERMS:
+        for host in EPROCURE_HOSTS:
+            # Skip hosts whose circuit is already open — _request handles the
+            # message; we just move to the mirror.
+            url = host + SEARCH_PATH.format(kw=requests.utils.quote(term))
+            soup = fetch_soup(url)
+            if soup is None:
+                continue                      # try the mirror for this term
+            hits.extend(_parse_search_page(soup, host))
+            break                             # this term answered — next term
     return hits
 
 
@@ -1606,9 +1679,45 @@ def parse_cppp(source: dict) -> list[dict]:
         print(f"    ✓ direct HTML: {len(hits)} active tender(s)")
         return hits
 
+    # ── Step 1b: JS-rendered scrape ───────────────────────────────────────────
+    # gem.gov.in/cppp serves its tender table client-side (verified: a static
+    # GET returns only the page header and disclaimer). Render with Playwright
+    # and re-run the same row extraction before falling back to eprocure.
+    js_soup = fetch_soup_js(base_url, wait_selector="table tr")
+    if js_soup:
+        for row in js_soup.find_all("tr"):
+            row_text = row.get_text(separator=" ", strip=True)
+            if len(row_text) < 10:
+                continue
+            kw_match = first_keyword_match(row_text, keywords)
+            if not kw_match:
+                continue
+            deadline_dt, deadline_str = _extract_deadline(row_text, now)
+            if deadline_dt is None:
+                continue
+            a = row.find("a", href=True)
+            href = urljoin(base_url, a["href"]) if a else base_url
+            title = a.get_text(strip=True) if a else row_text[:150]
+            if href in seen:
+                continue
+            seen.add(href)
+            hits.append({
+                "org": org,
+                "category": "Tenders",
+                "keyword": kw_match,
+                "title": title[:150],
+                "article_url": href,
+                "date": f"Deadline: {deadline_str}",
+                "snippet": clean_snippet(row_text),
+                "uid": make_uid(href, title),
+            })
+        if hits:
+            print(f"    ✓ JS-rendered HTML: {len(hits)} active tender(s)")
+            return hits
+
     # ── Step 2: eprocure classic keyword-search fallback ──────────────────────
-    print(f"    ⚠  direct HTML returned 0 rows (likely AJAX-rendered) — "
-          f"falling back to eprocure keyword search")
+    print(f"    ⚠  direct + rendered HTML returned 0 rows — "
+          f"falling back to eprocure/etenders keyword search")
     fallback = _eprocure_keyword_hits(org, keywords, seen, now)
     if fallback:
         print(f"    ✓ eprocure search: {len(fallback)} active tender(s)")
