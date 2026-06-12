@@ -459,12 +459,28 @@ SOURCES = [
         "parser": "html",
     },
     {
+        # Akamai blocks datacenter IPs on the insights SPA at every layer
+        # (static GET times out, Playwright gets HTTP/2 resets, anonymous Jina
+        # returns a ~491-byte stub) — direct HTML scraping is a dead end from
+        # CI. Two RSS routes instead:
+        #   Primary: the legacy Sitecore feed at /insights/rss (still live;
+        #   all-topics, but REALTIME_KEYWORDS gating filters to ESG items).
+        #   Fallback: Google News site-scoped search with sustainability
+        #   terms — fetched from news.google.com, so never IP-blocked.
+        # no_html: skip the HTML fallback; it's verified blocked and burns
+        # ~90s of Playwright/Jina timeouts per run for nothing.
         "org": "McKinsey",
         "url": "https://www.mckinsey.com/capabilities/sustainability/our-insights",
-        "rss": None,
+        "rss": "https://www.mckinsey.com/insights/rss",
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:mckinsey.com+sustainability+OR+ESG+OR+decarbonization"
+            "+OR+climate+OR+net+zero&hl=en-US&gl=US&ceid=US:en"
+        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "html",
+        "parser": "rss_news",
     },
     {
         "org": "BCG",
@@ -1673,6 +1689,131 @@ def _cppp_route_rows(route: str) -> list[tuple]:
     return all_rows
 
 
+# ── AI tender triage (semantic layer over the CPPP listing scan) ─────────────
+# The keyword filter only catches tenders whose titles contain an exact
+# TENDER_KEYWORDS phrase. Indian gov tender titles are frequently abbreviated
+# or domain-worded ("Rooftop Solar EPC", "EIA study", "STP upgradation",
+# "RE power procurement") and slip through. With AI_TENDER_TRIAGE enabled
+# (default when GEMINI_API_KEY is set; disable with AI_TENDER_TRIAGE=0),
+# every ACTIVE title on a scanned route is also sent to Gemini in one cheap
+# batched call per route, and model-flagged rows are unioned with keyword
+# matches. FAIL-OPEN: any API failure leaves the keyword-only behaviour.
+AI_TENDER_TRIAGE = os.environ.get("AI_TENDER_TRIAGE", "1") != "0"
+AI_TRIAGE_CHUNK = 250                       # titles per Gemini call (safety)
+_CPPP_AI_FLAGS: dict[str, dict[int, str]] = {}   # route → {row_idx: short tag}
+
+
+def _gemini_triage_titles(numbered_titles: list[str]) -> dict[int, str]:
+    """
+    One batched relevance call: send numbered tender titles, get back
+    {index: short_tag} for the relevant ones. Returns {} on any failure.
+    Mirrors generate_ai_summaries' model-fallback pattern, but lighter
+    (2 attempts per model — this is an enhancement layer, not critical path).
+    """
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key or not numbered_titles:
+        return {}
+
+    prompt = (
+        "You are screening Indian government e-procurement tender titles for an "
+        "ESG advisory and sustainability consulting practice.\n\n"
+        f"Below are {len(numbered_titles)} active tender titles:\n\n"
+        + "\n".join(numbered_titles)
+        + "\n\n"
+        "Identify ONLY the tenders relevant to: ESG / sustainability consulting "
+        "or reporting (BRSR, disclosures, ratings); carbon markets, credits, "
+        "audits, accounting or offset projects; decarbonisation, net zero or "
+        "climate action planning; energy / environmental / sustainability "
+        "audits; renewable energy, green hydrogen or energy-transition projects "
+        "and studies; environmental impact assessments and compliance services; "
+        "waste-to-energy, biomass or circular-economy projects; green finance.\n\n"
+        "Be selective: routine civil works, road construction, general goods "
+        "supply, IT/manpower hiring, and ordinary O&M contracts are NOT "
+        "relevant unless the subject matter itself is sustainability-focused. "
+        "When in doubt, exclude.\n\n"
+        "Respond ONLY with JSON in this exact shape (empty list if none):\n"
+        '{"relevant": [{"i": 12, "tag": "Rooftop Solar EPC"}, '
+        '{"i": 47, "tag": "Energy Audit"}]}\n'
+        "where i is the title number and tag is a 2-4 word topic label."
+    )
+
+    RETRYABLE = {429, 500, 503}
+    for model in GEMINI_MODELS:
+        api_url = f"{GEMINI_BASE_URL}{model}:generateContent"
+        for attempt in (1, 2):
+            try:
+                resp = requests.post(
+                    api_url,
+                    params={"key": api_key},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "responseMimeType": "application/json",
+                            "maxOutputTokens": 4096,
+                        },
+                    },
+                    timeout=90,
+                )
+                if resp.status_code in RETRYABLE:
+                    if attempt == 1:
+                        time.sleep(10)
+                        continue
+                    break                      # next model
+                resp.raise_for_status()
+                raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if raw.startswith("```"):
+                    raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw)
+                    raw = re.sub(r"\s*```$", "", raw).strip()
+                data = json.loads(raw)
+                out: dict[int, str] = {}
+                for item in data.get("relevant", []):
+                    try:
+                        out[int(item["i"])] = str(item.get("tag", "ESG-relevant"))[:40]
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                return out
+            except Exception as exc:
+                msg = str(exc).splitlines()[0][:120] if str(exc) else type(exc).__name__
+                print(f"    ⚠  AI triage call failed ({model}, attempt {attempt}): {msg}")
+                if attempt == 2:
+                    break                      # next model
+    return {}
+
+
+def _cppp_ai_flags(route: str, now: datetime) -> dict[int, str]:
+    """
+    Memoised per-route triage: {row_index: tag} for rows Gemini flags as
+    ESG-relevant. Only ACTIVE rows (future deadline, usable title) are sent.
+    """
+    if route in _CPPP_AI_FLAGS:
+        return _CPPP_AI_FLAGS[route]
+
+    flags: dict[int, str] = {}
+    rows = _CPPP_ROUTE_ROWS.get(route, [])
+    candidates = []                            # (row_idx, title)
+    for idx, (row_text, title, _href) in enumerate(rows):
+        if len(title) < 5:
+            continue
+        deadline_dt, _ = _extract_deadline(row_text, now)
+        if deadline_dt is None:
+            continue
+        candidates.append((idx, title[:120]))
+
+    if candidates:
+        for start in range(0, len(candidates), AI_TRIAGE_CHUNK):
+            chunk = candidates[start:start + AI_TRIAGE_CHUNK]
+            numbered = [f"{n}. {title}" for n, (_idx, title) in enumerate(chunk, start=1)]
+            result = _gemini_triage_titles(numbered)
+            for local_n, tag in result.items():
+                if 1 <= local_n <= len(chunk):
+                    flags[chunk[local_n - 1][0]] = tag
+        print(f"    ✓ AI triage {route}: {len(flags)} of {len(candidates)} "
+              f"active title(s) flagged relevant")
+
+    _CPPP_AI_FLAGS[route] = flags
+    return flags
+
+
 def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
                            routes: tuple = ("cpppdata", "mmpdata")) -> list[dict]:
     """
@@ -1699,13 +1840,18 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
     """
     hits = []
     for route in routes:
-        for row_text, title, href in _cppp_route_rows(route):
+        rows = _cppp_route_rows(route)
+        # Semantic triage layer: rows Gemini flags as ESG-relevant are kept
+        # even without an exact keyword match. {} when disabled or on failure.
+        ai_flags = _cppp_ai_flags(route, now) if (AI_TENDER_TRIAGE and rows) else {}
+        for row_idx, (row_text, title, href) in enumerate(rows):
             if not href.startswith("http"):
                 href = urljoin(CPPP_LISTING_BASE, href)
             if href in seen or len(title) < 5:
                 continue
             kw_match = first_keyword_match(f"{title} {row_text}", keywords)
-            if not kw_match:
+            ai_tag = ai_flags.get(row_idx)
+            if not kw_match and not ai_tag:
                 continue
             deadline_dt, deadline_str = _extract_deadline(row_text, now)
             if deadline_dt is None:
@@ -1714,7 +1860,9 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
             hits.append({
                 "org": org,
                 "category": "Tenders",
-                "keyword": kw_match,
+                # Keyword chip in the email: exact keyword when matched,
+                # otherwise the model's short topic tag prefixed for clarity.
+                "keyword": kw_match or f"AI: {ai_tag}",
                 "title": title[:150],
                 "article_url": href,
                 "date": f"Deadline: {deadline_str}",
