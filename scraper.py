@@ -135,20 +135,16 @@ def fmt_date(raw: str) -> str:
     return raw
 
 TENDER_KEYWORDS = [
-    "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint", "Carbon Neutral",
-    "Net Zero", "Carbon Sequestration", "Scope 1", "Scope 2", "Scope 3", "GHG",
-    "Green House Gas", "Green House Gases", "ESG", "ESG Disclosure", "Climate Change",
-    "Green Finance", "Sustainable Finance", "BRSR", "Assurance", "Assessment",
-    "Sustainability", "Sustainable", "Carbon Market",
-    # NOTE: the old "Sustainab" stem was dead weight — whole-word matching
-    # (no trailing letters allowed) meant it could never match "Sustainability".
-    # Advisory/assurance-flavoured terms Indian ESG tenders are actually titled
-    # with (needed now that the fallback scans full CPPP listings rather than
-    # keyword-searching the portal):
-    "Energy Audit", "Carbon Audit", "Environmental Audit", "Sustainability Audit",
-    "Sustainability Report", "Climate Action Plan", "Decarbonisation", "Decarbonization",
-    "Energy Transition", "Renewable Energy", "Green Hydrogen", "Waste to Energy",
-    "Biomass", "Circular Economy", "EV Charging", "Carbon Neutrality",
+    # Exact list specified 12-Jun-2026 — tender matching is keyword-only
+    # (AI triage proved over-inclusive: 359 items, mostly civil works).
+    # Whole-word matching, case-insensitive. A trailing * marks a prefix
+    # stem: "Sustainab*" matches Sustainable / Sustainability / Sustainably.
+    "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint",
+    "Carbon", "Carbon Neutral", "Net Zero", "Carbon Sequestration",
+    "Scope 1", "Scope 2", "Scope 3", "GHG", "Green House Gas", "Green House Gases",
+    "ESG", "ESG Disclosure", "Climate Change", "Green Finance", "Sustainable Finance",
+    "BRSR", "Assurance", "Assessment", "Sustainab*", "Sustainability",
+    "CCTS", "Carbon Market",
 ]
 
 REALTIME_KEYWORDS = [
@@ -609,12 +605,20 @@ def first_keyword_match(text: str, keywords: list) -> str | None:
     Return the most specific (longest) keyword whose whole-word form appears in text.
     Sorting by length descending ensures 'ESG Disclosure' wins over 'ESG',
     'BRSR Core' wins over 'BRSR', 'Carbon Border Adjustment' wins over 'Carbon Border', etc.
+
+    A keyword ending in '*' is a prefix stem: trailing letters are allowed
+    after it ("Sustainab*" matches Sustainable / Sustainability / Sustainably).
+    The leading word boundary still applies.
     """
     text_lower = text.lower()
     for kw in sorted(keywords, key=len, reverse=True):
-        pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}(?![a-zA-Z0-9])"
+        if kw.endswith("*"):
+            stem = kw[:-1].lower()
+            pattern = rf"(?<![a-zA-Z0-9]){re.escape(stem)}[a-z]*"
+        else:
+            pattern = rf"(?<![a-zA-Z0-9]){re.escape(kw.lower())}(?![a-zA-Z0-9])"
         if re.search(pattern, text_lower):
-            return kw
+            return kw.rstrip("*")
     return None
 
 
@@ -1610,17 +1614,31 @@ _TENDER_DATE_RE = re.compile(
 
 def _extract_deadline(row_text: str, now: datetime):
     """
-    Return (deadline_dt, deadline_str) for the nearest future date in row_text,
-    or (None, '') when all dates are in the past (tender already closed).
+    Return (deadline_dt, deadline_str) for the tender's CLOSING date, or
+    (None, '') when the tender is expired or no usable date is found.
+
+    CPPP listing column order is: e-Published, Closing, Opening — so when
+    3+ dates parse, the SECOND one is the bid-closing deadline, and it must
+    be in the future. (The old nearest-future-date logic leaked just-expired
+    tenders: closing yesterday + opening tomorrow → opening date shown as a
+    live "deadline".) With fewer than 3 parseable dates, fall back to the
+    nearest future date.
     """
-    candidates = []
+    parsed = []
     for m in _TENDER_DATE_RE.finditer(row_text):
         dt = parse_fuzzy_date(m.group(1))
-        if dt and dt > now:
-            candidates.append((dt, m.group(1)))
+        if dt:
+            parsed.append((dt, m.group(1)))
+
+    if len(parsed) >= 3:
+        closing_dt, closing_raw = parsed[1]      # Published, CLOSING, Opening
+        if closing_dt > now:
+            return closing_dt, fmt_date(closing_raw)
+        return None, ""                          # closed → expired, drop
+
+    candidates = sorted((p for p in parsed if p[0] > now), key=lambda x: x[0])
     if not candidates:
         return None, ""
-    candidates.sort(key=lambda x: x[0])
     dt, raw = candidates[0]
     return dt, fmt_date(raw)
 
@@ -1724,7 +1742,12 @@ def _cppp_route_rows(route: str) -> list[tuple]:
 # every ACTIVE title on a scanned route is also sent to Gemini in one cheap
 # batched call per route, and model-flagged rows are unioned with keyword
 # matches. FAIL-OPEN: any API failure leaves the keyword-only behaviour.
-AI_TENDER_TRIAGE = os.environ.get("AI_TENDER_TRIAGE", "1") != "0"
+# DEFAULT OFF since 12-Jun-2026: in production the triage model flagged 359
+# items — overwhelmingly irrelevant civil works ("road construction",
+# "structural repair") — flooding the digest. Tender matching is now
+# keyword-only (TENDER_KEYWORDS). Re-enable explicitly with
+# AI_TENDER_TRIAGE=1 if the prompt/model is ever reworked and re-tested.
+AI_TENDER_TRIAGE = os.environ.get("AI_TENDER_TRIAGE", "0") == "1"
 AI_TRIAGE_CHUNK = 250                       # titles per Gemini call (safety)
 # Hard wall-clock budget for ALL triage calls in a run. Triage is an
 # enhancement layer: once the budget is spent (slow/failing API), it switches
