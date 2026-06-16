@@ -3322,11 +3322,11 @@ def build_email(df_new: pd.DataFrame) -> str:
         '<body style="margin:0;padding:0;background:#eef0f5;">'
 
         "<!--[if mso]>"
-        '<table align="center" width="680" cellspacing="0" cellpadding="0" border="0">'
+        '<table align="center" width="1100" cellspacing="0" cellpadding="0" border="0">'
         '<tr><td bgcolor="#eef0f5" style="background:#eef0f5;padding:20px;">'
         "<![endif]-->"
 
-        f'<div style="max-width:680px;margin:0 auto;padding:20px;background:#eef0f5;{_FONT}">'
+        f'<div style="max-width:1100px;margin:0 auto;padding:20px;background:#eef0f5;{_FONT}">'
         + inner +
         "</div>"
 
