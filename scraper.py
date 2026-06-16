@@ -2417,12 +2417,25 @@ if not df_new.empty:
         lambda r: relevance_score(r.get("title", ""), r.get("snippet", ""), r.get("org", "")),
         axis=1,
     )
-    # Thematic sub-header assignment (ESG News only; other categories blank)
-    df_new["theme"] = df_new.apply(
-        lambda r: assign_theme(r.get("keyword", ""), r.get("title", ""), r.get("snippet", ""))
-        if r.get("category") == "ESG News" else "",
-        axis=1,
-    )
+    # Regulatory items are folded into the ESG News section under the
+    # "Regulation, Policy & Disclosures" theme (they no longer render as a
+    # standalone front section). Reclassify their category to "ESG News" so they
+    # flow through the themed ESG News renderer. Tenders are left untouched.
+    _reg_mask = df_new["category"] == "Regulatory"
+    df_new.loc[_reg_mask, "category"] = "ESG News"
+
+    # Thematic sub-header assignment (ESG News only; other categories blank).
+    # Former-Regulatory items are pinned to the regulation theme; genuine ESG
+    # News items use the keyword/text-based assignment as before.
+    def _theme_for(r) -> str:
+        if r.get("category") != "ESG News":
+            return ""
+        if r.get("_was_regulatory"):
+            return "Regulation, Policy & Disclosures"
+        return assign_theme(r.get("keyword", ""), r.get("title", ""), r.get("snippet", ""))
+
+    df_new["_was_regulatory"] = _reg_mask
+    df_new["theme"] = df_new.apply(_theme_for, axis=1)
     df_new = df_new.sort_values(
         "relevance", ascending=False, kind="stable"
     ).reset_index(drop=True)
@@ -2844,6 +2857,8 @@ def render_summary_bar(df: pd.DataFrame) -> str:
         f'text-transform:uppercase;{_FONT}">Today</span></td>'
     ]
     for cat, cfg in CATEGORY_STYLE.items():
+        if cat == "Regulatory":
+            continue  # folded into ESG News; no standalone pill
         n = len(df[df["category"] == cat])
         if n:
             pill_bg, pill_fg, pill_w = _GOLD, _NAVY, "font-weight:700;"
@@ -2916,11 +2931,7 @@ def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
         "</p>"
     )
 
-    snippet_part = (
-        f'<p style="color:{_SNIP};font-size:14px;margin:0 0 10px 0;line-height:1.7;{_SERIF}">'
-        f'{row["snippet"]}</p>'
-        if row.get("snippet") else ""
-    )
+    # Raw snippet line removed — cards now show only the AI Overview below.
 
     # Overview block — "Overview" label replaces "AI:", Georgia serif body text.
     # If the AI summary contains an "India impact:" analysis line, split it out and
@@ -2968,7 +2979,7 @@ def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
         "<tr>"
         # Gold left accent bar
         f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
-        # Card body — full width, tags + title + meta + snippet + overview all at same indent
+        # Card body — full width, tags + title + meta + overview all at same indent
         f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:14px 18px 13px 16px;'
         f'border-bottom:1px solid {_DIVIDER};">'
         f'{tag_row}'
@@ -2976,7 +2987,6 @@ def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
         f'font-size:15px;text-decoration:none;line-height:1.45;display:block;{_FONT}">'
         f'{row["title"]}</a>'
         f'{meta_line}'
-        f'{snippet_part}'
         f'{overview_part}'
         "</td>"
         "</tr></table>"
@@ -3160,6 +3170,10 @@ def build_email(df_new: pd.DataFrame) -> str:
         def _keep(row) -> bool:
             if row["category"] != "ESG News":
                 return True
+            # Former-Regulatory items are folded into ESG News but, like
+            # Regulatory always was, are never filtered by the relevance gate.
+            if row.get("_was_regulatory"):
+                return True
             score = uid_relevance.get(row["uid"])
             return score is None or score >= AI_RELEVANCE_MIN
 
@@ -3186,13 +3200,17 @@ def build_email(df_new: pd.DataFrame) -> str:
         summary_html = ""
         ai_digest_html = ""
     else:
+        # Regulatory items have been folded into ESG News (under the
+        # "Regulation, Policy & Disclosures" theme), so the standalone
+        # Regulatory section is no longer rendered.
         content = "".join(
             render_category_section(
                 df_render, cat, cfg,
-                always_show=(cat in ("Regulatory", "Tenders")),
+                always_show=(cat == "Tenders"),
                 uid_summaries=uid_summaries,
             )
             for cat, cfg in CATEGORY_STYLE.items()
+            if cat != "Regulatory"
         )
         summary_html = render_summary_bar(df_render)
         ai_digest_html = render_ai_digest_block(india_glance, global_brief)
