@@ -37,6 +37,19 @@ POWER_AUTOMATE_URL = "https://defaultfd7143fa1107460d98b18ef251b16d.50.environme
 TODAY_STR = datetime.now().strftime("%d %B %Y")
 HISTORY_PATH = "Historical_Matches.csv"
 
+# Single fixed timestamp for this entire run (UTC). Used both for stamping
+# newly-seen items in history and for computing the rolling history-grace
+# window below, so every comparison in the run uses one consistent "now".
+RUN_NOW_UTC = datetime.now(timezone.utc)
+
+# Rolling history grace window: an item already in history still appears in
+# the email until this many hours have elapsed since it was FIRST seen. This
+# means fresh items keep showing across multiple runs on the same day, and
+# only drop out once they are genuinely a day old. Items first seen more than
+# this long ago are suppressed as duplicates.
+HISTORY_GRACE_HOURS = 24
+HISTORY_GRACE_CUTOFF = RUN_NOW_UTC - timedelta(hours=HISTORY_GRACE_HOURS)
+
 # Items older than this many days are ignored (prevents stale SEBI dumps on first run)
 RECENCY_DAYS = 60
 RECENCY_CUTOFF = datetime.now(timezone.utc) - timedelta(days=RECENCY_DAYS)
@@ -2354,8 +2367,18 @@ for source in SOURCES:
 print(f"\n  Total raw matches: {len(all_results)}")
 
 # ==========================================
-# 6. DEDUPLICATION AGAINST HISTORY (URL-LEVEL)
+# 6. DEDUPLICATION AGAINST HISTORY (URL-LEVEL, with 24h grace window)
 # ==========================================
+#
+# An item is suppressed only if its uid is in history AND it was first seen
+# more than HISTORY_GRACE_HOURS ago. Items first seen within the window still
+# appear in the email, so genuinely fresh items keep showing across multiple
+# runs on the same day and only drop out once they are ~a day old.
+#
+# History schema: uid, first_seen (UTC ISO 8601), date_seen (human-readable).
+# Older files may have only uid + date_seen; those rows are migrated by
+# backfilling first_seen from date_seen at midnight UTC (conservative — a
+# day-old item is already outside the window, which is the intended result).
 
 df_today = pd.DataFrame(all_results) if all_results else pd.DataFrame(
     columns=["org", "category", "keyword", "title", "article_url", "date", "snippet", "uid"]
@@ -2391,19 +2414,64 @@ if not df_today.empty:
     if dupes_dropped:
         print(f"  Cross-query/syndication duplicates removed: {dupes_dropped}")
 
+
+def _parse_first_seen(row) -> datetime:
+    """
+    Recover a uid's first-seen instant as an aware UTC datetime.
+
+    Prefers the ISO 'first_seen' column; falls back to parsing the legacy
+    'date_seen' string (e.g. '15 June 2026') at 00:00 UTC. Anything
+    unparseable is treated as the epoch so the item is considered old and
+    stays suppressed (safe default — we never spuriously re-show on bad data).
+    """
+    fs = row.get("first_seen")
+    if isinstance(fs, str) and fs.strip():
+        try:
+            dt = datetime.fromisoformat(fs.strip())
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    ds = row.get("date_seen")
+    if isinstance(ds, str) and ds.strip():
+        try:
+            return datetime.strptime(ds.strip(), "%d %B %Y").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+# uid -> first_seen datetime, carried forward so the window is measured from
+# the ORIGINAL sighting (never reset on later runs — otherwise a recurring
+# item would show forever).
+uid_first_seen: dict[str, datetime] = {}
+
 if os.path.exists(HISTORY_PATH) and not df_today.empty:
     df_history = pd.read_csv(HISTORY_PATH)
     if "uid" in df_history.columns:
-        known_uids = set(df_history["uid"].dropna())
-        df_new = df_today[~df_today["uid"].isin(known_uids)].copy()
+        for _, hrow in df_history.iterrows():
+            uid = hrow.get("uid")
+            if isinstance(uid, str) and uid:
+                uid_first_seen[uid] = _parse_first_seen(hrow)
+        # Suppress only uids seen AND first seen outside the grace window.
+        stale_uids = {
+            uid for uid, fs in uid_first_seen.items() if fs <= HISTORY_GRACE_CUTOFF
+        }
+        df_new = df_today[~df_today["uid"].isin(stale_uids)].copy()
+        within_window = sum(
+            1 for u in df_today["uid"]
+            if u in uid_first_seen and u not in stale_uids
+        )
+        if within_window:
+            print(f"  History grace window ({HISTORY_GRACE_HOURS}h): "
+                  f"{within_window} previously-seen item(s) still fresh — kept.")
     else:
         # Old history format (org + keyword) — migrate gracefully
         print("  ⚠  Old history format detected; migrating to URL-based dedup.")
         df_new = df_today.copy()
-        df_history = pd.DataFrame(columns=["uid", "date_seen"])
+        df_history = pd.DataFrame(columns=["uid", "first_seen", "date_seen"])
 else:
     df_new = df_today.copy()
-    df_history = pd.DataFrame(columns=["uid", "date_seen"])
+    df_history = pd.DataFrame(columns=["uid", "first_seen", "date_seen"])
 
 print(f"  New items after dedup: {len(df_new)}")
 
@@ -2445,15 +2513,39 @@ if not df_new.empty:
 # ==========================================
 # 7. PERSIST HISTORY
 # ==========================================
+#
+# Record every item that appeared this run. Genuinely-new uids are stamped
+# with this run's UTC timestamp; uids already in history keep their ORIGINAL
+# first_seen (so the 24h grace window is always measured from the first
+# sighting and a recurring item eventually ages out instead of showing
+# forever). Existing rows are concatenated first and de-duplicated with
+# keep="first", so originals win over any re-stamp.
 
 if not df_new.empty:
+    run_iso = RUN_NOW_UTC.isoformat()
     new_hist = pd.DataFrame({
         "uid": df_new["uid"].tolist(),
+        "first_seen": [
+            uid_first_seen[u].isoformat() if u in uid_first_seen else run_iso
+            for u in df_new["uid"]
+        ],
         "date_seen": TODAY_STR,
     })
-    pd.concat([df_history, new_hist]).drop_duplicates(subset="uid").to_csv(
-        HISTORY_PATH, index=False
-    )
+
+    # Normalise existing history to the current schema before concat so old
+    # files (uid + date_seen only) gain a first_seen column.
+    if "first_seen" not in df_history.columns:
+        if not df_history.empty:
+            df_history = df_history.copy()
+            df_history["first_seen"] = df_history.apply(
+                lambda r: _parse_first_seen(r).isoformat(), axis=1
+            )
+        else:
+            df_history = pd.DataFrame(columns=["uid", "first_seen", "date_seen"])
+
+    pd.concat([df_history, new_hist]).drop_duplicates(
+        subset="uid", keep="first"
+    ).to_csv(HISTORY_PATH, index=False)
 
 # ==========================================
 # 7.5  AI DIGEST SUMMARY  (Gemini REST API via requests)
