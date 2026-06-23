@@ -68,8 +68,30 @@ MAX_PER_SOURCE = 3
 # AI_RELEVANCE_MIN are dropped from the digest. Regulatory and Tenders items
 # are never filtered. Fail-open on API failure. Disable with
 # AI_RELEVANCE_GATE=0; tune the threshold with AI_RELEVANCE_MIN (0-10).
+#
+# Threshold lowered 4 → 2 (23-Jun-2026): at 4 the gate was deleting roughly
+# half the digest (18 → 9 items) while the recurring complaint is too FEW
+# items. At 2 the genuine junk (career listicles, layoff/share-price PR) still
+# falls below the bar, but event coverage and India forums survive.
 AI_RELEVANCE_GATE = os.environ.get("AI_RELEVANCE_GATE", "1") != "0"
-AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "4"))
+AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "2"))
+
+# Event/topic sources are NEVER filtered by the AI gate (like Tenders and
+# Regulatory). These feeds exist specifically to track flagship events such as
+# London Climate Action Week; Gemini scores event-announcement pieces as
+# low-substance and was deleting exactly the coverage these feeds are meant to
+# surface. Matched by org label, which survives into the rendered DataFrame.
+EVENT_SOURCE_ORGS = frozenset([
+    "London Climate Action Week",
+    "Climate & ESG Events",
+])
+
+# Deterministic-score bypass: an ESG News item whose CODE-side relevance score
+# (relevance_score(), max ~15) is at least this high skips the AI gate even if
+# Gemini scores it low. Prevents the model from silently overriding the highest-
+# signal India/regulatory items (e.g. an India net-zero forum the code scored 11
+# but Gemini dropped at 2). Tune with DETERMINISTIC_BYPASS_MIN.
+DETERMINISTIC_BYPASS_MIN = int(os.environ.get("DETERMINISTIC_BYPASS_MIN", "8"))
 
 # ── Gemini REST API constants ─────────────────────────────────────────────────
 # Defined here (not in the AI-summary section further down) because the AI
@@ -3552,6 +3574,16 @@ def build_email(df_new: pd.DataFrame) -> str:
             # Former-Regulatory items are folded into ESG News but, like
             # Regulatory always was, are never filtered by the relevance gate.
             if row.get("_was_regulatory"):
+                return True
+            # Event/topic sources (London Climate Action Week, etc.) are never
+            # filtered — these feeds exist to track flagship events that Gemini
+            # consistently under-scores as low-substance announcements.
+            if row.get("org") in EVENT_SOURCE_ORGS:
+                return True
+            # Deterministic-score bypass: a high code-side relevance score
+            # overrides a low Gemini score, so the model can't silently delete
+            # the highest-signal India/regulatory items.
+            if row.get("relevance", 0) >= DETERMINISTIC_BYPASS_MIN:
                 return True
             score = uid_relevance.get(row["uid"])
             return score is None or score >= AI_RELEVANCE_MIN
