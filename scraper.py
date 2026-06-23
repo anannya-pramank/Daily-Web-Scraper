@@ -34,8 +34,7 @@ except ImportError:
 
 POWER_AUTOMATE_URL = "https://defaultfd7143fa1107460d98b18ef251b16d.50.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/83c582d1339848bf82bb44367f463879/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=G0QNUbenz6wjlJLNkAW0j0b34BMc6aB7i58Lfmy-8Jg"
 
-from datetime import datetime, timezone
-TODAY_STR = datetime.now(timezone.utc).strftime("%d %B %Y")  # explicit UTC
+TODAY_STR = datetime.now().strftime("%d %B %Y")
 HISTORY_PATH = "Historical_Matches.csv"
 
 # Single fixed timestamp for this entire run (UTC). Used both for stamping
@@ -199,8 +198,10 @@ REALTIME_KEYWORDS = [
     "Kunming Montreal", "Deforestation", "Nature Loss", "Biodiversity",
     "EUDR",
     # ── Circular / Trade ─────────────────────────────────────────────────────
-    "Circular Economy", "Plastic Pollution", "Plastic Credit",
+    "Circular Economy", "Plastic Pollution", "Plastic Credit", "Plastic Waste",
     "Carbon Border", "EU Green Deal", "EU Carbon Tax", "EU ETS", "CBAM",
+    # ── CBAM (explicit sub-terms) ─────────────────────────────────────────────
+    "CBAM Reporting", "CBAM Certificate", "CBAM Implementation", "CBAM Transition",
     # ── Other specific ───────────────────────────────────────────────────────
     "Bioenergy", "Biochar", "Biomass", "BECCS", "Methane", "Scope 1", "Scope 2", "Scope 3",
     "Assurance", "Assessment",
@@ -209,15 +210,31 @@ REALTIME_KEYWORDS = [
     "Biomass Energy", "Biomass Power", "Biomass Carbon", "Biomass Pellets",
     "Biomass Gasification", "Forest Biomass", "Biomass Co-firing",
     "Agricultural Residue", "Biofuel", "BECCS", "Bio-CCS", "Biomass", "RED III",
+    "Sustainable Biomass", "Biomass Sustainability Criteria", "Biomass Carbon Neutrality",
     # ── Water (explicit additions) ────────────────────────────────────────────
     "Water Credits", "Watershed", "CDP Water", "Groundwater", "Water Recycling",
+    "Water Disclosure",
     # ── ESG Tech & Ratings (explicit) ─────────────────────────────────────────
     "ESG Tech", "ESG SaaS", "ESG KPI", "Materiality Matrix", "ESG Benchmark",
     "ESG Maturity", "Climate Fintech", "Green Fintech",
     # ── Markets & Finance (explicit additions) ────────────────────────────────
     "Nature Finance", "Single Use Plastic", "CCTS",
+    "Carbon Credit Market",
+    "CO2 Investor", "ESG Investor", "Impact Fund", "Climate Fund",
+    "Sustainable Investment India", "Climate VC", "Green PE",
     # ── Biodiversity (explicit additions) ────────────────────────────────────
     "Wetlands", "Wildlife",
+    # ── Energy (explicit additions) ───────────────────────────────────────────
+    "EV", "Ammonia",
+    # ── India (explicit additions) ────────────────────────────────────────────
+    "India Renewable",
+    # ── ESG Events ────────────────────────────────────────────────────────────
+    "ESG Seminar", "Climate Conference", "Carbon Forum", "ESG India", "Sustainability Event",
+    # ── Global Carbon & Trade ─────────────────────────────────────────────────
+    "BRICS Carbon", "Global Carbon Market", "International Carbon Trading",
+    "Global Sustainability", "G20 Climate", "Multilateral Carbon", "Global Net Zero",
+    # ── Bilateral / JCM (explicit additions) ─────────────────────────────────
+    "Japan Carbon", "Bilateral Carbon",
     "Sustainability", "Green Finance", "ESG", "Emissions", "Solar",
 ]
 
@@ -547,6 +564,144 @@ SOURCES = [
         "category": "ESG News",
         "parser": "rss_news",
     },
+    # ── Indian Print Media ────────────────────────────────────────────────────
+    {
+        # The Hindu publishes RSS feeds per section. We take the general feed
+        # (all sections) and let REALTIME_KEYWORDS gate to ESG-relevant items.
+        # Google News fallback scoped to thehindu.com for bot-blocked runs.
+        "org": "The Hindu",
+        "url": "https://www.thehindu.com/",
+        "rss": "https://www.thehindu.com/feeder/default.rss",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:thehindu.com+ESG+OR+sustainability+OR+carbon+OR+climate+OR+net+zero"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # LiveMint / Mint — primary RSS at /rss/news; Google News fallback for
+        # paywalled or bot-protected runs.
+        "org": "Mint",
+        "url": "https://www.livemint.com/",
+        "rss": "https://www.livemint.com/rss/news",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:livemint.com+ESG+OR+sustainability+OR+carbon+OR+climate+OR+net+zero"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # Economic Times — top-stories RSS covers most ESG/climate coverage.
+        # Google News scoped fallback. ET is India's largest financial daily,
+        # so REALTIME_KEYWORDS gating keeps only relevant items.
+        "org": "Economic Times",
+        "url": "https://economictimes.indiatimes.com/",
+        "rss": "https://economictimes.indiatimes.com/rssfeedstopstories.cms",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:economictimes.indiatimes.com+ESG+OR+sustainability+OR+carbon"
+            "+OR+climate+OR+net+zero+OR+renewable+energy"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    # ── International Wire Services ───────────────────────────────────────────
+    {
+        # Reuters removed its public RSS feeds. Google News site-scoped search
+        # is the only reliable free route; no_html skips the HTML fallback
+        # since reuters.com requires a login for full article access.
+        "org": "Reuters",
+        "url": "https://www.reuters.com/",
+        "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:reuters.com+ESG+OR+sustainability+OR+carbon+OR+climate"
+            "+OR+net+zero+OR+renewable+energy+OR+CBAM"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # Bloomberg is behind a hard paywall; direct HTML and RSS both blocked.
+        # Google News indexes Bloomberg headlines — the only open route.
+        # no_html: skip the HTML fallback (always 403/redirect-to-login).
+        "org": "Bloomberg",
+        "url": "https://www.bloomberg.com/",
+        "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:bloomberg.com+ESG+OR+sustainability+OR+carbon+OR+climate"
+            "+OR+net+zero+OR+green+finance+OR+CBAM"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    # ── Law Firm Insights ─────────────────────────────────────────────────────
+    {
+        # Clifford Chance — JS-rendered insights SPA; direct scraping unreliable.
+        # Google News site-scoped search with ESG/climate terms is the primary
+        # path. no_html skips the broken HTML fallback.
+        "org": "Clifford Chance",
+        "url": "https://www.cliffordchance.com/insights.html",
+        "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:cliffordchance.com+ESG+OR+sustainability+OR+carbon+OR+climate"
+            "+OR+net+zero+OR+CBAM+OR+green+finance"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # Linklaters — insights SPA, no public RSS. Google News fallback only.
+        "org": "Linklaters",
+        "url": "https://www.linklaters.com/en/insights",
+        "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:linklaters.com+ESG+OR+sustainability+OR+carbon+OR+climate"
+            "+OR+net+zero+OR+CBAM+OR+green+finance"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # A&O Shearman (Allen & Overy + Shearman & Sterling, merged 2023) —
+        # insights SPA, no public RSS. Google News fallback only.
+        "org": "A&O Shearman",
+        "url": "https://www.aoshearman.com/en/insights",
+        "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:aoshearman.com+ESG+OR+sustainability+OR+carbon+OR+climate"
+            "+OR+net+zero+OR+CBAM+OR+green+finance"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
     # ── Regulatory ────────────────────────────────────────────────────────────
     {
         "org": "SEBI Master Circular",
@@ -764,6 +919,7 @@ INDIA_RELEVANCE_RE = re.compile(
 # so e.g. a PIB or Khaitan item outranks an equally-scored global wire piece.
 INDIA_FOCUSED_ORGS = frozenset([
     "PIB India", "Khaitan & Co",
+    "The Hindu", "Mint", "Economic Times",
     "SEBI Master Circular", "SEBI Circulars",
     "SEBI Advisory/Guidance", "SEBI Gazette Notification",
 ])
