@@ -230,6 +230,24 @@ REALTIME_KEYWORDS = [
     "India Renewable",
     # ── ESG Events ────────────────────────────────────────────────────────────
     "ESG Seminar", "Climate Conference", "Carbon Forum", "ESG India", "Sustainability Event",
+    # ── UN / Intergovernmental events ─────────────────────────────────────────
+    "COP31", "Pre-COP", "CBD COP", "UNCCD COP", "HLPF",
+    "World Future Energy Summit",
+    # ── Flagship climate weeks ────────────────────────────────────────────────
+    "London Climate Action Week", "Climate Week NYC", "Ecosperity Week",
+    "Harvard Climate Action Week", "Euronext Sustainability Week",
+    # ── Major ESG & sustainability conferences ────────────────────────────────
+    "GreenBiz", "Sustainability LIVE", "World Economic Forum", "World ESG Summit",
+    "Hamburg Sustainability Conference", "Reset Connect", "Circularity Conference",
+    "VERGE Conference", "GreenFin", "Bloom Conference", "Sustainable Brands",
+    "Smart City Expo", "European Climate Summit", "Scope 3 Summit",
+    "Impact Summit Europe",
+    # ── Sustainable finance & investment forums ───────────────────────────────
+    "PRI in Person", "Responsible Investment Forum", "Wall Street Green Summit",
+    "CeFPro Sustainable Finance", "Trellis Impact", "Carbon Capture Europe Summit",
+    # ── Asia / India-relevant events ──────────────────────────────────────────
+    "World Sustainable Development Summit", "ESG India Summit", "India Climate Week",
+    "Asia Pacific Climate Week", "Singapore International Energy Week",
     # ── Global Carbon & Trade ─────────────────────────────────────────────────
     "BRICS Carbon", "Global Carbon Market", "International Carbon Trading",
     "Global Sustainability", "G20 Climate", "Multilateral Carbon", "Global Net Zero",
