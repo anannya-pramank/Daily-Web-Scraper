@@ -327,11 +327,14 @@ SOURCES = [
     },
     {
         # /feed/ is the correct WordPress feed (verified via feed directories)
-        # but the site's bot protection intermittently serves it empty to
-        # datacenter IPs — Google News fallback covers those runs.
+        # trellis.net/feed blocks datacenter IPs — setting rss=None skips the
+        # primary fetch AND the 11-candidate autodiscovery probe it triggers on
+        # failure (saves ~30s per run). no_html: homepage is also bot-blocked.
+        # Google News site-scoped search is the only reliable route.
         "org": "GreenBiz / Trellis",
         "url": "https://trellis.net/",
-        "rss": "https://trellis.net/feed/",
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:trellis.net&hl=en-US&gl=US&ceid=US:en"
@@ -369,9 +372,14 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
+        # /feeds/news/ is dead (TechTarget/Informa migration); setting rss=None
+        # skips the primary fetch AND the 11-candidate autodiscovery probe it
+        # was triggering on failure. no_html: site blocks datacenter IPs.
+        # Google News site-scoped search is the only reliable route.
         "org": "ESG Dive",
         "url": "https://www.esgdive.com/",
-        "rss": "https://www.esgdive.com/feeds/news/",
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:esgdive.com&hl=en-US&gl=US&ceid=US:en"
@@ -582,11 +590,12 @@ SOURCES = [
         "parser": "rss_news",
     },
     {
-        # LiveMint / Mint — primary RSS at /rss/news; Google News fallback for
-        # paywalled or bot-protected runs.
+        # LiveMint / Mint — /rss/news does not exist; /rss/industry is the
+        # correct business/corporate feed (confirmed live). Google News fallback
+        # for bot-protected runs.
         "org": "Mint",
         "url": "https://www.livemint.com/",
-        "rss": "https://www.livemint.com/rss/news",
+        "rss": "https://www.livemint.com/rss/industry",
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:livemint.com+ESG+OR+sustainability+OR+carbon+OR+climate+OR+net+zero"
