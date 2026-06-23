@@ -256,6 +256,30 @@ REALTIME_KEYWORDS = [
     "Sustainability", "Green Finance", "ESG", "Emissions", "Solar",
 ]
 
+# ── Tender exclusions ─────────────────────────────────────────────────────────
+# A tender row may contain a tracked keyword (e.g. "Sustainable" appears in
+# "supply of sustainable UPV pipes") yet be commercially irrelevant. These
+# whole-word terms VETO a tender even if it matched a TENDER_KEYWORD. Spec'd
+# 23-Jun-2026: no UPV pipe tenders. Add new exclusions here as noise surfaces.
+TENDER_EXCLUDE_KEYWORDS = [
+    "UPV", "UPVC", "PVC", "Pipe", "Pipes", "Piping", "Pipeline", "Pipelines",
+    "HDPE", "DI Pipe", "GI Pipe", "Borewell", "Plumbing",
+]
+
+
+def tender_keyword_match(text: str, keywords: list) -> str | None:
+    """
+    Tender-specific keyword matcher: returns a matched TENDER_KEYWORD only if
+    NO TENDER_EXCLUDE_KEYWORDS term is present in the same row. This keeps
+    keyword-only tender gating but vetoes excluded categories (e.g. UPV pipe
+    supply) that would otherwise pass on an incidental "Sustainable"/"Carbon"
+    mention.
+    """
+    if first_keyword_match(text, TENDER_EXCLUDE_KEYWORDS):
+        return None
+    return first_keyword_match(text, keywords)
+
+
 SEBI_KEYWORDS = [
     # Matches tracking list exactly: BRSR/LODR/Assurance/Assessment/BRSR Core only
     "BRSR Core", "BRSR",
@@ -724,6 +748,85 @@ SOURCES = [
             "?q=site:aoshearman.com+ESG+OR+sustainability+OR+carbon+OR+climate"
             "+OR+net+zero+OR+CBAM+OR+green+finance"
             "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    # ── US Financial Press (paywalled — Google News index only) ───────────────
+    {
+        # Barron's is paywalled; no public RSS. Google News site-scoped search
+        # with ESG/climate terms is the only open route. no_html: the site
+        # redirects datacenter IPs to a paywall/login stub.
+        "org": "Barron's",
+        "url": "https://www.barrons.com/",
+        "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:barrons.com+ESG+OR+sustainability+OR+carbon+OR+climate"
+            "+OR+net+zero+OR+green+finance+OR+renewable+energy"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # Wall Street Journal is hard-paywalled; direct HTML and RSS both blocked.
+        # Google News indexes WSJ headlines — the only open route. no_html skips
+        # the HTML fallback (always 403/redirect-to-subscribe).
+        "org": "Wall Street Journal",
+        "url": "https://www.wsj.com/",
+        "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:wsj.com+ESG+OR+sustainability+OR+carbon+OR+climate"
+            "+OR+net+zero+OR+green+finance+OR+CBAM"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    # ── Event & Topic feeds (cross-outlet Google News searches) ───────────────
+    # Unlike the site-scoped sources above, these search a TOPIC across ALL
+    # outlets. They exist because event coverage (e.g. London Climate Action
+    # Week) is scattered across many publishers — a site-scoped feed only
+    # catches it if that one outlet happens to run a story AND it trips a
+    # generic keyword. A topic feed guarantees the event is surfaced wherever
+    # it's reported. gnews=True so the per-article publisher becomes the org
+    # label (not a fixed source name). REALTIME_KEYWORDS still gates each item.
+    {
+        "org": "London Climate Action Week",
+        "url": "https://news.google.com/",
+        "rss": None,
+        "gnews": True,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=%22London+Climate+Action+Week%22+OR+%22London+Climate+Week%22"
+            "&hl=en-GB&gl=GB&ceid=GB:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # General climate-week / ESG-event topic feed: catches the other
+        # flagship weeks and summits (Climate Week NYC, Ecosperity, COP, etc.)
+        # across all outlets, complementing the site-scoped sources.
+        "org": "Climate & ESG Events",
+        "url": "https://news.google.com/",
+        "rss": None,
+        "gnews": True,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=%22Climate+Week%22+OR+%22Climate+Action+Week%22+OR+%22COP31%22"
+            "+OR+%22Ecosperity%22+OR+%22sustainability+summit%22"
+            "&hl=en-GB&gl=GB&ceid=GB:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
@@ -2121,7 +2224,7 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
                 href = urljoin(CPPP_LISTING_BASE, href)
             if href in seen or len(title) < 5:
                 continue
-            kw_match = first_keyword_match(f"{title} {row_text}", keywords)
+            kw_match = tender_keyword_match(f"{title} {row_text}", keywords)
             ai_tag = ai_flags.get(row_idx)
             if not kw_match and not ai_tag:
                 continue
@@ -2166,7 +2269,7 @@ def parse_gem(source: dict) -> list[dict]:
         row_text = row.get_text(separator=" ", strip=True)
         if len(row_text) < 10:
             continue
-        kw = first_keyword_match(row_text, keywords)
+        kw = tender_keyword_match(row_text, keywords)
         if not kw:
             continue
         deadline_dt, deadline_str = _extract_deadline(row_text, now)
@@ -2223,7 +2326,7 @@ def parse_cppp(source: dict) -> list[dict]:
             row_text = row.get_text(separator=" ", strip=True)
             if len(row_text) < 10:
                 continue
-            kw_match = first_keyword_match(row_text, keywords)
+            kw_match = tender_keyword_match(row_text, keywords)
             if not kw_match:
                 continue
             deadline_dt, deadline_str = _extract_deadline(row_text, now)
@@ -2260,7 +2363,7 @@ def parse_cppp(source: dict) -> list[dict]:
             row_text = row.get_text(separator=" ", strip=True)
             if len(row_text) < 10:
                 continue
-            kw_match = first_keyword_match(row_text, keywords)
+            kw_match = tender_keyword_match(row_text, keywords)
             if not kw_match:
                 continue
             deadline_dt, deadline_str = _extract_deadline(row_text, now)
@@ -2355,7 +2458,7 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
 
         if detail in seen or len(title) < 5:
             return None
-        kw = first_keyword_match(title, keywords)
+        kw = tender_keyword_match(title, keywords)
         if not kw:
             return None
         dl_dt = parse_fuzzy_date(closing)
