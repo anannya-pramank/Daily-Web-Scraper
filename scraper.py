@@ -170,16 +170,37 @@ def fmt_date(raw: str) -> str:
     return raw
 
 TENDER_KEYWORDS = [
-    # Exact list specified 12-Jun-2026 — tender matching is keyword-only
-    # (AI triage proved over-inclusive: 359 items, mostly civil works).
-    # Whole-word matching, case-insensitive. A trailing * marks a prefix
-    # stem: "Sustainab*" matches Sustainable / Sustainability / Sustainably.
+    # Topic keywords for tenders. Whole-word, case-insensitive; trailing *
+    # marks a prefix stem ("Sustainab*" → Sustainable / Sustainability).
+    # Refined 26-Jun-2026: a tender must ALSO read as a SERVICE bid (see
+    # TENDER_SERVICE_KEYWORDS / tender_keyword_match) — these topic terms no
+    # longer pass on their own, which kills civil-works/supply false positives.
     "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint",
     "Carbon", "Carbon Neutral", "Net Zero", "Carbon Sequestration",
     "Scope 1", "Scope 2", "Scope 3", "GHG", "Green House Gas", "Green House Gases",
     "ESG", "ESG Disclosure", "Climate Change", "Green Finance", "Sustainable Finance",
-    "BRSR", "Assurance", "Assessment", "Sustainab*", "Sustainability",
+    "BRSR", "BRSR Core", "Reasonable Assurance", "Assurance Provider",
+    "Assurance", "Assessment", "Sustainab*", "Sustainability",
     "CCTS", "Carbon Market",
+    # Service-procurement terms Anannya flagged (legal / advisory engagements)
+    "Legal", "Legal Services", "Legal Consultant", "Legal Advisor", "Legal Advisory",
+    "Hiring of Consultant", "Hiring of Consultants", "Engagement of Consultant",
+    "Appointment of Consultant", "Consultancy Services", "Advisory Services",
+]
+
+# ── Tender bid-type gate (Service Bids only) ──────────────────────────────────
+# CPPP/GeM listing rows don't expose a server-side "Bid type = Service" filter,
+# so we approximate it textually: a row qualifies as a SERVICE bid when it
+# carries any of these terms. Mirrors the GeM "Custom Bid for Services" /
+# "Hiring of ..." phrasing and the CPPP services-tender wording. Spec'd
+# 26-Jun-2026: tenders should be service bids (legal, BRSR, consultants,
+# assurance), not goods/works supply.
+TENDER_SERVICE_KEYWORDS = [
+    "Service", "Services", "Custom Bid for Services", "Custom Bid",
+    "Hiring of", "Engagement of", "Appointment of", "Selection of",
+    "Empanelment", "Consultant", "Consultants", "Consultancy", "Consulting",
+    "Advisory", "Advisor", "Auditor", "Audit", "Assurance Provider",
+    "Professional Services", "Manpower", "Agency",
 ]
 
 REALTIME_KEYWORDS = [
@@ -291,13 +312,17 @@ TENDER_EXCLUDE_KEYWORDS = [
 
 def tender_keyword_match(text: str, keywords: list) -> str | None:
     """
-    Tender-specific keyword matcher: returns a matched TENDER_KEYWORD only if
-    NO TENDER_EXCLUDE_KEYWORDS term is present in the same row. This keeps
-    keyword-only tender gating but vetoes excluded categories (e.g. UPV pipe
-    supply) that would otherwise pass on an incidental "Sustainable"/"Carbon"
-    mention.
+    Tender-specific keyword matcher. A row qualifies only when ALL hold:
+      1. No TENDER_EXCLUDE_KEYWORDS term is present (UPV pipes etc. vetoed).
+      2. The row reads as a SERVICE bid (matches TENDER_SERVICE_KEYWORDS) —
+         goods/works/supply tenders are dropped even if they mention a topic
+         term incidentally.
+      3. A topic keyword (BRSR / Assurance / Sustainability / Legal / …) matches.
+    Returns the matched topic keyword, or None.
     """
     if first_keyword_match(text, TENDER_EXCLUDE_KEYWORDS):
+        return None
+    if not first_keyword_match(text, TENDER_SERVICE_KEYWORDS):
         return None
     return first_keyword_match(text, keywords)
 
