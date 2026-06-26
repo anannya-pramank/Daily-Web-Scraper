@@ -1933,6 +1933,26 @@ _TENDER_DATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Tender reference number: a slash-laden procurement token, e.g.
+#   /TNPL/PUR/U1/262713001949/2026_TNPL_682410_1
+# CPPP rows carry a "Tender Reference Number" column whose value contains
+# multiple '/'-separated segments. Grab the longest such token in the row.
+_TENDER_REF_RE = re.compile(r'\S*(?:/\S+){2,}')
+
+
+def _extract_reference(row_text: str) -> str:
+    """Return the tender reference number from a listing row, or '' if none."""
+    candidates = _TENDER_REF_RE.findall(row_text)
+    if not candidates:
+        return ""
+    # The reference is the longest slash-delimited token (dates like 06/07/2026
+    # only have two segments and are shorter / numeric-only).
+    ref = max(candidates, key=len).strip(" .,;")
+    # Reject pure date-like tokens (dd/mm/yyyy) that slipped through.
+    if re.fullmatch(r'[\d/\-]+', ref):
+        return ""
+    return ref
+
 
 def _extract_deadline(row_text: str, now: datetime):
     """
@@ -2263,6 +2283,7 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
                 "title": title[:150],
                 "article_url": href,
                 "date": f"Deadline: {deadline_str}",
+                "reference": _extract_reference(row_text),
                 "snippet": clean_snippet(row_text),
                 "uid": make_uid(href, title),
             })
@@ -2310,6 +2331,7 @@ def parse_gem(source: dict) -> list[dict]:
             "title": title[:150],
             "article_url": href,
             "date": f"Deadline: {deadline_str}",
+            "reference": _extract_reference(row_text),
             "snippet": clean_snippet(row_text),
             "uid": make_uid(href, title),
         })
@@ -2367,6 +2389,7 @@ def parse_cppp(source: dict) -> list[dict]:
                 "title": title[:150],
                 "article_url": href,
                 "date": f"Deadline: {deadline_str}",
+                "reference": _extract_reference(row_text),
                 "snippet": clean_snippet(row_text),
                 "uid": make_uid(href, title),
             })
@@ -2404,6 +2427,7 @@ def parse_cppp(source: dict) -> list[dict]:
                 "title": title[:150],
                 "article_url": href,
                 "date": f"Deadline: {deadline_str}",
+                "reference": _extract_reference(row_text),
                 "snippet": clean_snippet(row_text),
                 "uid": make_uid(href, title),
             })
@@ -2495,6 +2519,7 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
             "title": title[:150],
             "article_url": detail,
             "date": f"Deadline: {fmt_date(closing)}" if closing else "",
+            "reference": bid_no or "",
             "snippet": clean_snippet(f"Bid: {bid_no} | Closing: {closing} | {title}"),
             "uid": make_uid(detail, title),
         }
@@ -2542,6 +2567,7 @@ def parse_gem_bidplus(source: dict) -> list[dict]:
                 "title": title[:150],
                 "article_url": href,
                 "date": f"Deadline: {dl_str}",
+                "reference": _extract_reference(text),
                 "snippet": clean_snippet(text),
                 "uid": make_uid(href, title),
             })
@@ -3374,6 +3400,30 @@ def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
         "</td></tr></table>"
         if ai_summary else ""
     )
+
+    # Tenders show no Overview summary — just the reference number (the deadline
+    # is already on the meta line). Reference replaces the whole summary block.
+    if row.get("category") == "Tenders":
+        ref = row.get("reference") or ""
+        if ref:
+            overview_part = (
+                '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
+                "<tr>"
+                f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:9px 12px;">'
+                '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
+                '<td width="1" valign="top" style="padding-right:10px;white-space:nowrap;">'
+                f'<span style="font-size:11px;font-weight:700;color:{_NAVY};'
+                f'letter-spacing:0.07em;text-transform:uppercase;{_FONT}">Reference</span>'
+                "</td>"
+                '<td valign="top">'
+                f'<p style="margin:0;font-size:13px;color:{_TEXT};line-height:1.5;'
+                f'word-break:break-all;{_FONT}">{ref}</p>'
+                "</td>"
+                "</tr></table>"
+                "</td></tr></table>"
+            )
+        else:
+            overview_part = ""
 
     return (
         '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
