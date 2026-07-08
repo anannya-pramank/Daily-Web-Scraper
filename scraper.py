@@ -337,32 +337,56 @@ TENDER_EXCLUDE_KEYWORDS = [
     # would otherwise sail through the legal-nature gate. Spec'd 08-Jul-2026.
     "Legal Size", "Legal Sized", "Legal Paper", "A4 Paper", "Photocopy",
     "Photocopier", "Stationery", "Printing Paper",
+    # Weights & Measures department procurement ("Legal Metrology" equipment,
+    # stamping machines etc.) — the most common bare-"Legal" false positive
+    # on CPPP. These are goods tenders, never legal-advisory engagements.
+    "Legal Metrology",
 ]
+
+
+# Gate diagnostics — incremented by tender_keyword_match across ALL tender
+# parsers and printed in the run summary, so a "0 tender match(es)" day is
+# distinguishable between genuine scarcity and an over-tight gate.
+TENDER_GATE_STATS = {"rows": 0, "excluded": 0, "no_legal": 0,
+                     "service_drop": 0, "passed": 0}
 
 
 def tender_keyword_match(text: str, keywords: list) -> str | None:
     """
     Tender-specific keyword matcher — LEGAL TENDERS ONLY. A row qualifies
     only when ALL hold:
-      1. No TENDER_EXCLUDE_KEYWORDS term is present (UPV pipes etc. vetoed).
+      1. No TENDER_EXCLUDE_KEYWORDS term is present (UPV pipes, legal-size
+         paper, Legal Metrology equipment etc. vetoed).
       2. The row is LEGAL in nature (TENDER_LEGAL_KEYWORDS) — legal advisory,
          legal services, advocate/counsel empanelment and the like. Anything
          non-legal is dropped, full stop.
-      3. The row reads as a SERVICE bid (matches TENDER_SERVICE_KEYWORDS) —
-         goods/works/supply tenders are dropped even if they mention a topic
-         term incidentally.
+      3. It reads as a SERVICE engagement. A SPECIFIC legal term (anything
+         beyond the bare word "Legal" — e.g. "Legal Advisor", "Advocates",
+         "Standing Counsel", "Law Firm") satisfies this on its own, since a
+         legal engagement is inherently a service; only a bare "Legal" match
+         still needs a TENDER_SERVICE_KEYWORDS term alongside it, which keeps
+         out goods rows that merely contain the word.
     Returns the keyword chip: the matched ESG topic keyword when present
     (legal tender that also mentions BRSR / Carbon / ESG …), otherwise the
     matched legal-nature term — so ALL legal tenders surface, chipped by
     whichever signal is most specific.
     """
+    TENDER_GATE_STATS["rows"] += 1
     if first_keyword_match(text, TENDER_EXCLUDE_KEYWORDS):
+        TENDER_GATE_STATS["excluded"] += 1
         return None
     legal_kw = is_legal_tender(text)
     if not legal_kw:
+        TENDER_GATE_STATS["no_legal"] += 1
         return None
-    if not first_keyword_match(text, TENDER_SERVICE_KEYWORDS):
+    is_service = (
+        legal_kw.lower() != "legal"
+        or first_keyword_match(text, TENDER_SERVICE_KEYWORDS) is not None
+    )
+    if not is_service:
+        TENDER_GATE_STATS["service_drop"] += 1
         return None
+    TENDER_GATE_STATS["passed"] += 1
     return first_keyword_match(text, keywords) or legal_kw
 
 
@@ -902,7 +926,9 @@ SOURCES = [
     },
     {
         "org": "UN PRI",
-        "url": "https://www.unpri.org/news-and-press",
+        # News & press lives on the public. subdomain — www.unpri.org/news-and-press 404s
+        # (verified 08-Jul-2026 after a live-run 404).
+        "url": "https://public.unpri.org/news-and-events/news-and-press",
         "rss": None,
         "rss_gnews": (
             "https://news.google.com/rss/search"
@@ -928,9 +954,12 @@ SOURCES = [
     {
         "org": "World Economic Forum",
         "url": "https://www.weforum.org/stories/",
-        # WEF publishes story feeds; if this path moves, parse_rss's
-        # autodiscovery + gnews fallback self-heal.
-        "rss": "https://www.weforum.org/stories/feed/",
+        # weforum.org 403s ALL direct fetches (feed, listing page, the 11
+        # autodiscovery candidates and the HTML fallback — verified live run
+        # 08-Jul-2026), so rss=None + no_html skips ~14 wasted requests per
+        # run. Google News is the sole (and sufficient) route.
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:weforum.org&hl=en-US&gl=US&ceid=US:en"
@@ -954,7 +983,10 @@ SOURCES = [
     {
         # SASB + ISSB both live under the IFRS Foundation domain.
         "org": "ISSB / SASB (IFRS Foundation)",
-        "url": "https://www.ifrs.org/news-and-events/",
+        # /news-and-events/ is a product-nav hub (its headings are "Products
+        # overview" etc. and leaked into the digest on 08-Jul-2026); the real
+        # article listing is /news-and-events/news/.
+        "url": "https://www.ifrs.org/news-and-events/news/",
         "rss": None,
         "rss_gnews": (
             "https://news.google.com/rss/search"
@@ -1872,10 +1904,9 @@ def _scrape_article_links(
                        or ctx.find("time"))
         raw_date = date_el.get_text(strip=True) if date_el else ""
         # Recency gate: skip only if a parseable date is older than the cutoff.
-        if raw_date:
-            item_dt = parse_fuzzy_date(raw_date)
-            if item_dt and item_dt < recency_cutoff:
-                return
+        item_dt = parse_fuzzy_date(raw_date) if raw_date else None
+        if item_dt and item_dt < recency_cutoff:
+            return
         seen.add(href)
         hits.append({
             "org": org,
@@ -1883,7 +1914,11 @@ def _scrape_article_links(
             "keyword": kw,
             "title": title,
             "article_url": href,
-            "date": fmt_date(raw_date) if raw_date else "",
+            # Only render dates that actually PARSE. Date-classed elements on
+            # CMS pages frequently contain filter chrome ("MinMaxLast month…",
+            # seen live 08-Jul-2026 on unglobalcompact.org) — passing raw
+            # unparseable text through put garbage in the email.
+            "date": item_dt.strftime("%d %b %Y") if item_dt else "",
             "snippet": clean_snippet(body_text),
             "uid": make_uid(href, title),
         })
@@ -1980,7 +2015,7 @@ def parse_rss(source: dict) -> list[dict]:
     org = source["org"]
     base_url = source["url"]
 
-    def _process_feed(feed) -> list[dict]:
+    def _process_feed(feed, from_gnews: bool = False) -> list[dict]:
         """Extract keyword-matching hits from a feedparser feed object.
 
         For Google News RSS feeds (gnews=True in source), each entry carries
@@ -1988,10 +2023,27 @@ def parse_rss(source: dict) -> list[dict]:
         We use that as the 'org' label so the email shows the original outlet,
         not 'Google News'.
         """
+        # Two distinct flags:
+        #   is_gnews    — source-level gnews=True (event/topic feeds): the
+        #                 per-entry publisher becomes the org label.
+        #   from_google — this PASS reads a Google News feed (covers the
+        #                 site-scoped rss_gnews feeds too): titles carry the
+        #                 " - Publisher" suffix and need stripping, but the
+        #                 org label still comes from the source dict.
         is_gnews = source.get("gnews", False)
+        from_google = is_gnews or from_gnews
         result = []
         for entry in feed.entries:
             title = entry.get("title", "").strip()
+            # Google News appends " - {Publisher}" to every title. Strip it so
+            # (a) the email doesn't show "…CBAM Carbon Import Tax - ESG Today",
+            # and (b) the normalised-title dedup catches the same story arriving
+            # via both the primary feed and Google News with different URLs —
+            # a pair of those duplicated in the 08-Jul-2026 digest.
+            if from_google and " - " in title:
+                _head, _tail = title.rsplit(" - ", 1)
+                if len(_head) >= 20 and len(_tail) <= 60:
+                    title = _head.strip()
             link = entry.get("link", "").strip()
             summary = BeautifulSoup(entry.get("summary", ""), "html.parser").get_text()
             pub_date = entry.get("published", entry.get("updated", ""))
@@ -2070,7 +2122,7 @@ def parse_rss(source: dict) -> list[dict]:
     if rss_gnews:
         feed = fetch_rss(rss_gnews)
         if feed and feed.entries:
-            gnews_hits = _process_feed(feed)     # shared `seen` deduplicates
+            gnews_hits = _process_feed(feed, from_gnews=True)  # shared `seen` deduplicates
             hits.extend(gnews_hits)
             print(f"    ✓ Google News RSS: {len(feed.entries)} entries → {len(gnews_hits)} new match(es)")
         else:
@@ -2960,6 +3012,11 @@ for source in SOURCES:
     all_results.extend(hits)
 
 print(f"\n  Total raw matches: {len(all_results)}")
+if TENDER_GATE_STATS["rows"]:
+    _s = TENDER_GATE_STATS
+    print(f"  Tender legal-gate: {_s['rows']} row(s) evaluated → "
+          f"{_s['passed']} passed | {_s['no_legal']} non-legal | "
+          f"{_s['excluded']} excluded | {_s['service_drop']} bare-'Legal' w/o service term")
 
 # ==========================================
 # 6. DEDUPLICATION AGAINST HISTORY (URL-LEVEL, with 24h grace window)
