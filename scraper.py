@@ -172,9 +172,12 @@ def fmt_date(raw: str) -> str:
 TENDER_KEYWORDS = [
     # Topic keywords for tenders. Whole-word, case-insensitive; trailing *
     # marks a prefix stem ("Sustainab*" → Sustainable / Sustainability).
-    # Refined 26-Jun-2026: a tender must ALSO read as a SERVICE bid (see
-    # TENDER_SERVICE_KEYWORDS / tender_keyword_match) — these topic terms no
-    # longer pass on their own, which kills civil-works/supply false positives.
+    # Refined 08-Jul-2026: tenders are now LEGAL-ONLY. A row must FIRST pass
+    # the mandatory legal-nature gate (TENDER_LEGAL_KEYWORDS below) — nothing
+    # non-legal is surfaced regardless of topic matches. These topic terms
+    # then decide the keyword chip shown in the email; a legal tender that
+    # also mentions an ESG topic is chipped with the topic, otherwise with
+    # the matched legal term.
     "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint",
     "Carbon", "Carbon Neutral", "Net Zero", "Carbon Sequestration",
     "Scope 1", "Scope 2", "Scope 3", "GHG", "Green House Gas", "Green House Gases",
@@ -182,11 +185,34 @@ TENDER_KEYWORDS = [
     "BRSR", "BRSR Core", "Reasonable Assurance", "Assurance Provider",
     "Assurance", "Assessment", "Sustainab*", "Sustainability",
     "CCTS", "Carbon Market",
-    # Service-procurement terms Anannya flagged (legal / advisory engagements)
-    "Legal", "Legal Services", "Legal Consultant", "Legal Advisor", "Legal Advisory",
-    "Hiring of Consultant", "Hiring of Consultants", "Engagement of Consultant",
-    "Appointment of Consultant", "Consultancy Services", "Advisory Services",
 ]
+
+# ── Tender legal-nature gate (MANDATORY — legal tenders only) ─────────────────
+# Spec'd 08-Jul-2026: every surfaced tender must be LEGAL in nature (legal
+# advisory / legal services / advocate empanelment / counsel engagement etc.).
+# A row that carries none of these whole-word terms is dropped outright, even
+# if it matches every topic keyword above. This gate is absolute: it also
+# applies to rows the optional Gemini triage layer flags, so AI can never
+# rescue a non-legal tender into the digest.
+TENDER_LEGAL_KEYWORDS = [
+    "Legal", "Legal Services", "Legal Service", "Legal Advisory", "Legal Advisor",
+    "Legal Adviser", "Legal Consultant", "Legal Consultants", "Legal Consultancy",
+    "Legal Counsel", "Legal Retainer", "Legal Opinion", "Legal Vetting",
+    "Legal Due Diligence", "Legal Audit", "Legal Cell", "Legal Aid",
+    "Legal Matters", "Legal Support",
+    "Law Firm", "Law Firms", "Law Officer", "Law Officers",
+    "Advocate", "Advocates", "Advocate on Record", "Standing Counsel",
+    "Panel Counsel", "Retainer Counsel", "Counsel",
+    "Attorney", "Attorneys", "Solicitor", "Solicitors",
+    "Empanelment of Advocates", "Panel of Advocates", "Empanelment of Law Firms",
+    "Arbitration", "Arbitrator", "Litigation", "Conveyancing",
+    "Drafting and Vetting", "Vetting of Agreements", "Vetting of Contracts",
+]
+
+
+def is_legal_tender(text: str) -> str | None:
+    """Mandatory legal-nature check — the matched legal term, or None."""
+    return first_keyword_match(text, TENDER_LEGAL_KEYWORDS)
 
 # ── Tender bid-type gate (Service Bids only) ──────────────────────────────────
 # CPPP/GeM listing rows don't expose a server-side "Bid type = Service" filter,
@@ -262,7 +288,7 @@ REALTIME_KEYWORDS = [
     "ESG Maturity", "Climate Fintech", "Green Fintech",
     # ── Markets & Finance (explicit additions) ────────────────────────────────
     "Nature Finance", "Single Use Plastic", "CCTS",
-    "Carbon Credit Market",
+    "Carbon Credit Market", "Compliance Carbon Market",
     "CO2 Investor", "ESG Investor", "Impact Fund", "Climate Fund",
     "Sustainable Investment India", "Climate VC", "Green PE",
     # ── Biodiversity (explicit additions) ────────────────────────────────────
@@ -307,24 +333,37 @@ REALTIME_KEYWORDS = [
 TENDER_EXCLUDE_KEYWORDS = [
     "UPV", "UPVC", "PVC", "Pipe", "Pipes", "Piping", "Pipeline", "Pipelines",
     "HDPE", "DI Pipe", "GI Pipe", "Borewell", "Plumbing",
+    # "Legal" false-friends: stationery/printing tenders ("legal size paper")
+    # would otherwise sail through the legal-nature gate. Spec'd 08-Jul-2026.
+    "Legal Size", "Legal Sized", "Legal Paper", "A4 Paper", "Photocopy",
+    "Photocopier", "Stationery", "Printing Paper",
 ]
 
 
 def tender_keyword_match(text: str, keywords: list) -> str | None:
     """
-    Tender-specific keyword matcher. A row qualifies only when ALL hold:
+    Tender-specific keyword matcher — LEGAL TENDERS ONLY. A row qualifies
+    only when ALL hold:
       1. No TENDER_EXCLUDE_KEYWORDS term is present (UPV pipes etc. vetoed).
-      2. The row reads as a SERVICE bid (matches TENDER_SERVICE_KEYWORDS) —
+      2. The row is LEGAL in nature (TENDER_LEGAL_KEYWORDS) — legal advisory,
+         legal services, advocate/counsel empanelment and the like. Anything
+         non-legal is dropped, full stop.
+      3. The row reads as a SERVICE bid (matches TENDER_SERVICE_KEYWORDS) —
          goods/works/supply tenders are dropped even if they mention a topic
          term incidentally.
-      3. A topic keyword (BRSR / Assurance / Sustainability / Legal / …) matches.
-    Returns the matched topic keyword, or None.
+    Returns the keyword chip: the matched ESG topic keyword when present
+    (legal tender that also mentions BRSR / Carbon / ESG …), otherwise the
+    matched legal-nature term — so ALL legal tenders surface, chipped by
+    whichever signal is most specific.
     """
     if first_keyword_match(text, TENDER_EXCLUDE_KEYWORDS):
         return None
+    legal_kw = is_legal_tender(text)
+    if not legal_kw:
+        return None
     if not first_keyword_match(text, TENDER_SERVICE_KEYWORDS):
         return None
-    return first_keyword_match(text, keywords)
+    return first_keyword_match(text, keywords) or legal_kw
 
 
 SEBI_KEYWORDS = [
@@ -832,6 +871,198 @@ SOURCES = [
             "?q=site:wsj.com+ESG+OR+sustainability+OR+carbon+OR+climate"
             "+OR+net+zero+OR+green+finance+OR+CBAM"
             "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    # ── Institutional & framework bodies (added 08-Jul-2026) ──────────────────
+    # ESG standard-setters, investor networks and industry councils on the
+    # tracking list. Structures verified 08-Jul-2026:
+    #   • Most are CMS sites with a /news listing but no reliable public RSS →
+    #     rss=None (skips the wasted autodiscovery probe) + site-scoped Google
+    #     News RSS + parse_rss's HTML-scrape fallback on the news page itself.
+    #   • WordPress sites (SPC) get their real /feed/.
+    #   • Brochure-style sites that publish little on-domain (IJBC, USIBC,
+    #     IGBC, ICC) use a NAME-scoped Google News query instead of site: —
+    #     their activity is reported by third-party outlets, not their own
+    #     pages. Org label still comes from the source dict (no gnews=True).
+    # REALTIME_KEYWORDS gates every item either way.
+    {
+        "org": "UN Global Compact",
+        "url": "https://unglobalcompact.org/news",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:unglobalcompact.org&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "UN PRI",
+        "url": "https://www.unpri.org/news-and-press",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:unpri.org&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "ICGN",
+        "url": "https://www.icgn.org/news",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:icgn.org+OR+%22International+Corporate+Governance+Network%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "World Economic Forum",
+        "url": "https://www.weforum.org/stories/",
+        # WEF publishes story feeds; if this path moves, parse_rss's
+        # autodiscovery + gnews fallback self-heal.
+        "rss": "https://www.weforum.org/stories/feed/",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:weforum.org&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "GRI",
+        "url": "https://www.globalreporting.org/news/",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:globalreporting.org&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # SASB + ISSB both live under the IFRS Foundation domain.
+        "org": "ISSB / SASB (IFRS Foundation)",
+        "url": "https://www.ifrs.org/news-and-events/",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:ifrs.org+ISSB+OR+SASB+OR+sustainability"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # Integrated Reporting Framework — IFRS Foundation subdomain.
+        "org": "IR Framework (IFRS Foundation)",
+        "url": "https://integratedreporting.ifrs.org/news/",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:integratedreporting.ifrs.org+OR+%22Integrated+Reporting+Framework%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Science Based Targets initiative",
+        "url": "https://sciencebasedtargets.org/news",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:sciencebasedtargets.org+OR+%22Science+Based+Targets%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # Static brochure site (ijbc.org, plain .html pages, no feed) — own
+        # publishing is thin, so the gnews query is name-scoped.
+        "org": "Indo-Japan Business Council (IJBC)",
+        "url": "https://www.ijbc.org/",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=%22Indo-Japan+Business+Council%22+OR+IJBC"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # USIBC content lives on uschamber.com (program page) — name-scoped
+        # gnews; the keyword gate keeps only Climate & Sustainability
+        # Task-Force-relevant items.
+        "org": "US-India Business Council (USIBC)",
+        "url": (
+            "https://www.uschamber.com/program/international-affairs"
+            "/south-asia-program/us-india-business-council"
+        ),
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=%22US-India+Business+Council%22+OR+USIBC"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        "org": "Indian Green Building Council (IGBC) – CII",
+        "url": "https://igbc.in/",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=%22Indian+Green+Building+Council%22+OR+IGBC"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # WordPress site — real feed available.
+        "org": "Sustainable Packaging Coalition (SPC)",
+        "url": "https://sustainablepackaging.org/news/",
+        "rss": "https://sustainablepackaging.org/feed/",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:sustainablepackaging.org+OR+%22Sustainable+Packaging+Coalition%22"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # Legacy .htm site — Responsible Care & ESG task-force coverage comes
+        # from third-party outlets; name-scoped gnews + homepage HTML fallback.
+        "org": "Indian Chemical Council (ICC)",
+        "url": "https://www.indianchemicalcouncil.com/",
+        "rss": None,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=%22Indian+Chemical+Council%22"
+            "&hl=en-IN&gl=IN&ceid=IN:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
@@ -2292,7 +2523,11 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
             if href in seen or len(title) < 5:
                 continue
             kw_match = tender_keyword_match(f"{title} {row_text}", keywords)
+            # AI triage can only rescue rows that STILL pass the mandatory
+            # legal-nature gate — tenders are legal-only (spec 08-Jul-2026).
             ai_tag = ai_flags.get(row_idx)
+            if ai_tag and not is_legal_tender(f"{title} {row_text}"):
+                ai_tag = None
             if not kw_match and not ai_tag:
                 continue
             deadline_dt, deadline_str = _extract_deadline(row_text, now)
