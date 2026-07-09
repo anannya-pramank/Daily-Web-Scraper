@@ -415,30 +415,15 @@ PIB_INDIA_KEYWORDS = [
 SOURCES = [
     # ── Tenders ──────────────────────────────────────────────────────────────
     {
-        "org": "GeM CPPP",
-        "url": "https://gem.gov.in/cppp",
-        "rss": None,
-        "keywords": TENDER_KEYWORDS,
-        "category": "Tenders",
-        "parser": "cppp",
-    },
-    {
-        # JS-rendered SPA — parse_gem_bidplus tries GeM search APIs then
-        # falls back to eprocure keyword search (CPPP aggregates GeM tenders).
-        "org": "GeM List of Bids",
-        "url": "https://bidplus.gem.gov.in/all-bids",
-        "rss": None,
-        "keywords": TENDER_KEYWORDS,
-        "category": "Tenders",
-        "parser": "gem_bidplus",
-    },
-    {
-        "org": "CPPP Active Tenders",
-        "url": (
-            "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata"
-            "/byYzJWc1pXTjBBMTNoMWMyVnNaV04wQTEzaDFjSFZpYkdsemFIVmtYMlJo"
-            "ZEdVPUExM2gxUWxKVFVnPT0="
-        ),
+        # GeM bids via the captcha-free CPPP Drupal gemdata listing. This was
+        # previously the FALLBACK of a bidplus.gem.gov.in Playwright scraper,
+        # but gem.gov.in and bidplus.gem.gov.in refuse connections from the
+        # runner IP on every run (ERR_CONNECTION_REFUSED, verified 08/09-Jul-
+        # 2026), so the direct route is now the only route. parse_gem_bidplus
+        # is kept in the codebase unregistered in case a future runner IP can
+        # reach GeM again.
+        "org": "GeM Bids (CPPP)",
+        "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/gemdata",
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
@@ -747,7 +732,11 @@ SOURCES = [
         # for bot-protected runs.
         "org": "Mint",
         "url": "https://www.livemint.com/",
-        "rss": "https://www.livemint.com/rss/industry",
+        # livemint.com/rss/industry and every autodiscovery candidate fail on
+        # each run (verified 08/09-Jul-2026) — rss=None skips the 12 wasted
+        # requests; the site-scoped Google News feed carries this source.
+        "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:livemint.com+ESG+OR+sustainability+OR+carbon+OR+climate+OR+net+zero"
@@ -895,6 +884,58 @@ SOURCES = [
             "?q=site:wsj.com+ESG+OR+sustainability+OR+carbon+OR+climate"
             "+OR+net+zero+OR+green+finance+OR+CBAM"
             "&hl=en-US&gl=US&ceid=US:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    # ── Indian legal press — cases & op-eds (added 09-Jul-2026) ───────────────
+    # Bar & Bench, SCC Times and LiveLaw publish high-volume court reporting
+    # and opinion pieces; REALTIME_KEYWORDS gates them down to ESG/climate/
+    # carbon-relevant judgments, orders and op-eds (EPR, CBAM, BRSR, green
+    # hydrogen PILs, NGT matters that mention tracked terms, etc.).
+    # NOTE: SCC Times is the free public WordPress blog at scconline.com/blog —
+    # NOT the SCC Online research database, which we deliberately do not
+    # scrape (EULA clause 8(c) analysis, Jul-2026). The blog has a standard
+    # public /feed/ and carries no database content restrictions.
+    {
+        # Quintype platform — /feed is the standard Quintype RSS route; if it
+        # moves, parse_rss autodiscovery + gnews self-heal.
+        "org": "Bar & Bench",
+        "url": "https://www.barandbench.com/",
+        "rss": "https://www.barandbench.com/feed",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:barandbench.com&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # WordPress blog — standard /feed/ verified pattern.
+        "org": "SCC Times",
+        "url": "https://www.scconline.com/blog/",
+        "rss": "https://www.scconline.com/blog/feed/",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:scconline.com&hl=en-IN&gl=IN&ceid=IN:en"
+        ),
+        "keywords": REALTIME_KEYWORDS,
+        "category": "ESG News",
+        "parser": "rss_news",
+    },
+    {
+        # LiveLaw exposes RSS (feed directories confirm) but the canonical
+        # path varies; /feed is the first probe and autodiscovery scans the
+        # homepage <link rel="alternate"> tags if it 404s. Headlines/snippets
+        # only — paywalled article bodies are never fetched.
+        "org": "LiveLaw",
+        "url": "https://www.livelaw.in/",
+        "rss": "https://www.livelaw.in/feed",
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:livelaw.in&hl=en-IN&gl=IN&ceid=IN:en"
         ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
@@ -2652,11 +2693,13 @@ def parse_gem(source: dict) -> list[dict]:
 
 def parse_cppp(source: dict) -> list[dict]:
     """
-    CPPP / eprocure tender parser covering all five tracking-list portals:
-      • gem.gov.in/cppp
+    CPPP / eprocure tender parser covering the captcha-free Drupal portals:
       • eprocure.gov.in/cppp/latestactivetendersnew/cpppdata  (Central)
       • eprocure.gov.in/cppp/latestactivetendersnew/mmpdata   (State)
-      • eprocure.gov.in/cppp/latestactivetendersnew/cpppdata/<base64>
+      • eprocure.gov.in/cppp/latestactivetendersnew/gemdata   (GeM bids)
+    (gem.gov.in/cppp, bidplus.gem.gov.in and the base64 cpppdata variant were
+    dropped 09-Jul-2026 — the GeM hosts refuse runner connections on every
+    run and the base64 route always returned 0 rows.)
 
     Strategy
     --------
@@ -2748,10 +2791,16 @@ def parse_cppp(source: dict) -> list[dict]:
             return hits
 
     # ── Step 2: CPPP Drupal listing fallback ─────────────────────────────────
-    # Route by what this source covers: state pages scan mmpdata, everything
-    # else scans the Central cpppdata listing (the old JSP keyword search is
-    # permanently captcha-gated — see _eprocure_keyword_hits docstring).
-    routes = ("mmpdata",) if "mmpdata" in base_url else ("cpppdata",)
+    # Route by what this source covers: state pages scan mmpdata, GeM pages
+    # scan gemdata, everything else scans the Central cpppdata listing (the
+    # old JSP keyword search is permanently captcha-gated — see
+    # _eprocure_keyword_hits docstring).
+    if "mmpdata" in base_url:
+        routes = ("mmpdata",)
+    elif "gemdata" in base_url:
+        routes = ("gemdata",)
+    else:
+        routes = ("cpppdata",)
     print(f"    ⚠  direct + rendered HTML returned 0 rows — "
           f"scanning CPPP listing route(s) {routes}")
     fallback = _eprocure_keyword_hits(org, keywords, seen, now, routes=routes)
@@ -2764,6 +2813,11 @@ def parse_cppp(source: dict) -> list[dict]:
 def parse_gem_bidplus(source: dict) -> list[dict]:
     """
     GeM Bidding Portal parser for bidplus.gem.gov.in/all-bids.
+
+    ⚠ UNREGISTERED since 09-Jul-2026: bidplus.gem.gov.in refuses connections
+    from the GitHub runner IP on every run, so the "GeM Bids (CPPP)" source
+    now scans the CPPP gemdata listing directly via parse_cppp. Re-add a
+    source with parser="gem_bidplus" if a future runner/host can reach GeM.
 
     The page is a React SPA — a static GET returns an empty shell.
     Playwright renders the JavaScript, then two extraction paths run in order:
