@@ -188,46 +188,65 @@ TENDER_KEYWORDS = [
 ]
 
 # ── Tender legal-nature gate (MANDATORY — legal tenders only) ─────────────────
-# Spec'd 08-Jul-2026: every surfaced tender must be LEGAL in nature (legal
-# advisory / legal services / advocate empanelment / counsel engagement etc.).
-# A row that carries none of these whole-word terms is dropped outright, even
-# if it matches every topic keyword above. This gate is absolute: it also
-# applies to rows the optional Gemini triage layer flags, so AI can never
-# rescue a non-legal tender into the digest.
-TENDER_LEGAL_KEYWORDS = [
-    "Legal", "Legal Services", "Legal Service", "Legal Advisory", "Legal Advisor",
-    "Legal Adviser", "Legal Consultant", "Legal Consultants", "Legal Consultancy",
+# Two-tier matching, spec'd 09-Jul-2026 after live false positives:
+#   • a Modinagar street-works tender passed because a road segment was
+#     described as running up to an ADVOCATE's house, and
+#   • a 60-Watt streetlight tender passed because the BUYER was the Haryana
+#     State "Legal Services" Authority.
+# STRONG terms are unambiguous legal-engagement phrases and pass alone.
+# WEAK terms (bare "Legal", "Advocate", "Counsel", org-name fragments like
+# "Legal Services") only pass when an ENGAGEMENT/procurement-of-services
+# signal (Empanelment / EOI / Appointment / Hiring / Panel / Retainer …)
+# appears in the same row — a legal-empanelment notice always carries one,
+# a street named after an advocate never does.
+TENDER_LEGAL_STRONG = [
+    "Empanelment of Advocates", "Empanelment of Advocate", "Panel of Advocates",
+    "Empanelment of Law Firms", "Empanelment of Law Firm",
+    "Legal Advisor", "Legal Adviser", "Legal Advisory",
+    "Legal Consultant", "Legal Consultants", "Legal Consultancy",
     "Legal Counsel", "Legal Retainer", "Legal Opinion", "Legal Vetting",
-    "Legal Due Diligence", "Legal Audit", "Legal Cell", "Legal Aid",
-    "Legal Matters", "Legal Support",
+    "Legal Due Diligence", "Legal Audit",
     "Law Firm", "Law Firms", "Law Officer", "Law Officers",
-    "Advocate", "Advocates", "Advocate on Record", "Standing Counsel",
-    "Panel Counsel", "Retainer Counsel", "Counsel",
-    "Attorney", "Attorneys", "Solicitor", "Solicitors",
-    "Empanelment of Advocates", "Panel of Advocates", "Empanelment of Law Firms",
-    "Arbitration", "Arbitrator", "Litigation", "Conveyancing",
-    "Drafting and Vetting", "Vetting of Agreements", "Vetting of Contracts",
+    "Standing Counsel", "Panel Counsel", "Retainer Counsel",
+    "Advocate on Record", "Legal Practitioner", "Legal Practitioners",
 ]
+TENDER_LEGAL_WEAK = [
+    "Legal", "Legal Services", "Legal Service", "Legal Cell", "Legal Aid",
+    "Legal Matters", "Legal Support",
+    "Advocate", "Advocates", "Counsel", "Attorney", "Attorneys",
+    "Solicitor", "Solicitors", "Litigation", "Arbitration", "Arbitrator",
+    "Conveyancing", "Drafting and Vetting", "Vetting of Agreements",
+    "Vetting of Contracts",
+]
+TENDER_ENGAGEMENT_KEYWORDS = [
+    "Empanelment", "Empanel", "Engagement of", "Appointment of", "Hiring of",
+    "Selection of", "Expression of Interest", "EOI", "RFP",
+    "Request for Proposal", "Panel", "Retainer", "Retainership",
+    "Applications are invited", "Inviting Applications", "Invites Applications",
+    "Notice Inviting Application", "Consultancy", "Consultant",
+    "Services of Advocate", "Services of Advocates", "Professional Services",
+]
+# Union kept for any external reference / debugging.
+TENDER_LEGAL_KEYWORDS = TENDER_LEGAL_STRONG + TENDER_LEGAL_WEAK
 
 
 def is_legal_tender(text: str) -> str | None:
-    """Mandatory legal-nature check — the matched legal term, or None."""
-    return first_keyword_match(text, TENDER_LEGAL_KEYWORDS)
+    """
+    Mandatory legal-nature check. Returns the matched legal term, or None.
+    STRONG term → pass. WEAK term → pass only alongside an engagement signal.
+    """
+    strong = first_keyword_match(text, TENDER_LEGAL_STRONG)
+    if strong:
+        return strong
+    weak = first_keyword_match(text, TENDER_LEGAL_WEAK)
+    if weak and first_keyword_match(text, TENDER_ENGAGEMENT_KEYWORDS):
+        return weak
+    return None
 
-# ── Tender bid-type gate (Service Bids only) ──────────────────────────────────
-# CPPP/GeM listing rows don't expose a server-side "Bid type = Service" filter,
-# so we approximate it textually: a row qualifies as a SERVICE bid when it
-# carries any of these terms. Mirrors the GeM "Custom Bid for Services" /
-# "Hiring of ..." phrasing and the CPPP services-tender wording. Spec'd
-# 26-Jun-2026: tenders should be service bids (legal, BRSR, consultants,
-# assurance), not goods/works supply.
-TENDER_SERVICE_KEYWORDS = [
-    "Service", "Services", "Custom Bid for Services", "Custom Bid",
-    "Hiring of", "Engagement of", "Appointment of", "Selection of",
-    "Empanelment", "Consultant", "Consultants", "Consultancy", "Consulting",
-    "Advisory", "Advisor", "Auditor", "Audit", "Assurance Provider",
-    "Professional Services", "Manpower", "Agency",
-]
+# NOTE (09-Jul-2026): the former TENDER_SERVICE_KEYWORDS "service bid" gate is
+# retired — its job is now done more precisely by TENDER_ENGAGEMENT_KEYWORDS
+# inside the two-tier legal gate (bare "Services" matched buyer names like
+# "Haryana State Legal Services Authority" and let a streetlight tender pass).
 
 REALTIME_KEYWORDS = [
     # ── Carbon & Emissions (specific first) ──────────────────────────────────
@@ -341,31 +360,32 @@ TENDER_EXCLUDE_KEYWORDS = [
     # stamping machines etc.) — the most common bare-"Legal" false positive
     # on CPPP. These are goods tenders, never legal-advisory engagements.
     "Legal Metrology",
+    # Works/goods signals that never occur in a legal engagement but showed up
+    # in live false positives (streetlight and municipal road tenders whose
+    # text carried "Advocate" / "Legal Services Authority"). Spec'd 09-Jul-2026.
+    "Ward No", "Watt", "Watts", "Street Light", "Streetlight",
+    "Luminaire", "Luminaires", "Interlocking", "CC Road",
+    "Providing and Fixing", "Providing & Fixing",
 ]
 
 
 # Gate diagnostics — incremented by tender_keyword_match across ALL tender
 # parsers and printed in the run summary, so a "0 tender match(es)" day is
 # distinguishable between genuine scarcity and an over-tight gate.
-TENDER_GATE_STATS = {"rows": 0, "excluded": 0, "no_legal": 0,
-                     "service_drop": 0, "passed": 0}
+TENDER_GATE_STATS = {"rows": 0, "excluded": 0, "no_legal": 0, "passed": 0}
 
 
 def tender_keyword_match(text: str, keywords: list) -> str | None:
     """
     Tender-specific keyword matcher — LEGAL TENDERS ONLY. A row qualifies
-    only when ALL hold:
-      1. No TENDER_EXCLUDE_KEYWORDS term is present (UPV pipes, legal-size
-         paper, Legal Metrology equipment etc. vetoed).
-      2. The row is LEGAL in nature (TENDER_LEGAL_KEYWORDS) — legal advisory,
-         legal services, advocate/counsel empanelment and the like. Anything
-         non-legal is dropped, full stop.
-      3. It reads as a SERVICE engagement. A SPECIFIC legal term (anything
-         beyond the bare word "Legal" — e.g. "Legal Advisor", "Advocates",
-         "Standing Counsel", "Law Firm") satisfies this on its own, since a
-         legal engagement is inherently a service; only a bare "Legal" match
-         still needs a TENDER_SERVICE_KEYWORDS term alongside it, which keeps
-         out goods rows that merely contain the word.
+    only when BOTH hold:
+      1. No TENDER_EXCLUDE_KEYWORDS term is present (pipes, stationery,
+         Legal Metrology equipment, streetlight/road works etc. vetoed).
+      2. It passes the two-tier legal-nature gate (is_legal_tender): a
+         STRONG legal-engagement phrase, or a WEAK legal term co-occurring
+         with an engagement/procurement signal. This is what admits
+         empanelment EOIs while rejecting rows where "Advocate" or "Legal
+         Services" is a street descriptor or a buyer's name.
     Returns the keyword chip: the matched ESG topic keyword when present
     (legal tender that also mentions BRSR / Carbon / ESG …), otherwise the
     matched legal-nature term — so ALL legal tenders surface, chipped by
@@ -378,13 +398,6 @@ def tender_keyword_match(text: str, keywords: list) -> str | None:
     legal_kw = is_legal_tender(text)
     if not legal_kw:
         TENDER_GATE_STATS["no_legal"] += 1
-        return None
-    is_service = (
-        legal_kw.lower() != "legal"
-        or first_keyword_match(text, TENDER_SERVICE_KEYWORDS) is not None
-    )
-    if not is_service:
-        TENDER_GATE_STATS["service_drop"] += 1
         return None
     TENDER_GATE_STATS["passed"] += 1
     return first_keyword_match(text, keywords) or legal_kw
@@ -2647,7 +2660,18 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
             deadline_dt, deadline_str = _extract_deadline(row_text, now)
             if deadline_dt is None:
                 continue
+            # Listing pagination shifts while we crawl (new tenders push rows
+            # down), so one tender can appear on several pages with DIFFERENT
+            # hrefs — href-based dedup printed the same tender 3× on
+            # 09-Jul-2026. Key on (reference, normalised title) instead, and
+            # derive the uid from the same key so history-level dedup also
+            # survives day-to-day href churn.
+            reference = _extract_reference(row_text)
+            tender_key = f"{reference}|{title[:120].lower().strip()}"
+            if tender_key in seen:
+                continue
             seen.add(href)
+            seen.add(tender_key)
             hits.append({
                 "org": org,
                 "category": "Tenders",
@@ -2657,9 +2681,9 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
                 "title": title[:150],
                 "article_url": href,
                 "date": f"Deadline: {deadline_str}",
-                "reference": _extract_reference(row_text),
+                "reference": reference,
                 "snippet": clean_snippet(row_text),
-                "uid": make_uid(href, title),
+                "uid": make_uid("", tender_key),
             })
     return hits
 
@@ -3091,7 +3115,7 @@ if TENDER_GATE_STATS["rows"]:
     _s = TENDER_GATE_STATS
     print(f"  Tender legal-gate: {_s['rows']} row(s) evaluated → "
           f"{_s['passed']} passed | {_s['no_legal']} non-legal | "
-          f"{_s['excluded']} excluded | {_s['service_drop']} bare-'Legal' w/o service term")
+          f"{_s['excluded']} excluded")
 
 # ==========================================
 # 6. DEDUPLICATION AGAINST HISTORY (URL-LEVEL, with 24h grace window)
