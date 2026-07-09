@@ -2343,8 +2343,15 @@ def _extract_deadline(row_text: str, now: datetime):
 # a Playwright render of page 0 is attempted if the static table is empty.
 
 CPPP_LISTING_BASE = "https://www.eprocure.gov.in/cppp/latestactivetendersnew/"
-CPPP_MAX_PAGES = 40            # hard ceiling only — date cutoff stops earlier
-CPPP_FRESH_DAYS = 3            # scan until published dates fall outside this window
+# CPPP_MAX_PAGES was 40, but live runs on 08/09-Jul-2026 hit exactly 40 pages
+# on BOTH cpppdata and mmpdata — the ceiling truncated the scan while rows were
+# still inside the freshness window (Central publishes thousands of tenders a
+# day; 400 rows is a few hours of postings). Cross-checked 09-Jul-2026: legal
+# tenders with live deadlines existed that the truncated slice never reached.
+# 200 pages ≈ 2,000 rows/route; the date cutoff should terminate first on most
+# days. Env-tunable (CPPP_MAX_PAGES=400 python scraper.py) without a code edit.
+CPPP_MAX_PAGES = int(os.environ.get("CPPP_MAX_PAGES", "200"))
+CPPP_FRESH_DAYS = int(os.environ.get("CPPP_FRESH_DAYS", "3"))
 CPPP_FETCH_TIMEOUT = 75        # listing pages (esp. gemdata) are slow to render
 CPPP_JS_TIMEOUT_MS = 60_000
 _CPPP_ROUTE_ROWS: dict[str, list] = {}  # route → [(row_text, title, href), …]
@@ -2391,6 +2398,7 @@ def _cppp_route_rows(route: str) -> list[tuple]:
 
     fresh_cutoff = datetime.now(timezone.utc) - timedelta(days=CPPP_FRESH_DAYS)
     all_rows: list[tuple] = []
+    rows: list[tuple] = []
     pages_fetched = 0
 
     for page in range(CPPP_MAX_PAGES):
@@ -2416,10 +2424,23 @@ def _cppp_route_rows(route: str) -> list[tuple]:
         if page_dts and max(page_dts) < fresh_cutoff:
             break
 
-    print(f"    ✓ CPPP {route}: {len(all_rows)} tender row(s) across "
-          f"{pages_fetched} page(s) (last {CPPP_FRESH_DAYS} days)"
-          if all_rows else
-          f"    ⚠  CPPP {route}: no tender rows retrieved")
+    # Distinguish "window exhausted" from "ceiling hit": if we consumed every
+    # allowed page and the newest dates on the LAST page are still inside the
+    # freshness window, the scan is truncated and coverage is partial.
+    truncated = False
+    if pages_fetched == CPPP_MAX_PAGES and all_rows:
+        last_page_rows = all_rows[-len(rows):] if rows else []
+        last_dts = [d for d in (_row_published_dt(t) for t, _, _ in last_page_rows) if d]
+        truncated = bool(last_dts) and max(last_dts) >= fresh_cutoff
+    if all_rows:
+        print(f"    ✓ CPPP {route}: {len(all_rows)} tender row(s) across "
+              f"{pages_fetched} page(s) (last {CPPP_FRESH_DAYS} days)")
+        if truncated:
+            print(f"    ⚠  CPPP {route}: scan TRUNCATED at {CPPP_MAX_PAGES}-page "
+                  f"ceiling with rows still inside the {CPPP_FRESH_DAYS}-day window "
+                  f"— raise CPPP_MAX_PAGES to widen coverage")
+    else:
+        print(f"    ⚠  CPPP {route}: no tender rows retrieved")
     _CPPP_ROUTE_ROWS[route] = all_rows
     return all_rows
 
