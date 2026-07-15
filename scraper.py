@@ -1229,6 +1229,25 @@ SOURCES = [
         "category": "Regulatory",
         "parser": "sebi",
     },
+    {
+        # Gazette of India — Extraordinary issues, date-wise search on the
+        # central e-Gazette portal. This is the primary-source feed for
+        # ministry notifications (MoEFCC EPR/plastic rules, MoP/BEE CCTS &
+        # carbon market notifications, MNRE, land acquisition under NH Act,
+        # commencement notifications, …) that previously reached the digest
+        # only if PIB happened to issue a matching press release.
+        # Screen = REALTIME_KEYWORDS against Subject + Ministry, per spec.
+        # Weekly gazettes are deliberately NOT registered — their listing
+        # subjects are the literal placeholder "Multiple Subjects", so a
+        # keyword screen can never pass one. See parse_egazette for the
+        # cookieless-session postback flow this parser drives.
+        "org": "Gazette of India (Extraordinary)",
+        "url": "https://egazette.gov.in/",
+        "rss": None,
+        "keywords": REALTIME_KEYWORDS,
+        "category": "Regulatory",
+        "parser": "egazette",
+    },
 ]
 
 # ==========================================
@@ -2286,6 +2305,325 @@ def parse_sebi(source: dict) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# GAZETTE OF INDIA  (egazette.gov.in — Extraordinary gazettes, date-wise)
+# ─────────────────────────────────────────────────────────────────────────────
+# The central e-Gazette portal is a cookieless-session ASP.NET app: the session
+# token lives in the URL path — /(S(token))/page.aspx — NOT in a cookie, so a
+# direct GET of any inner page 404s to error.aspx. Every request must reuse the
+# session base captured from the homepage redirect, and navigation between
+# pages happens via __VIEWSTATE postbacks, never plain GETs.
+#
+# The date-wise category search (SearchCategory.aspx) has NO captcha — verified
+# against the reference implementation in sushant354/egazette (srcs/central.py),
+# which drives the identical postback chain:
+#   1. GET  /                     → 302 → /(S(tok))/default.aspx   (capture base)
+#   2. POST default.aspx          __EVENTTARGET=sgzt               → SearchMenu.aspx
+#   3. POST SearchMenu.aspx       (drop the other search-mode buttons; the
+#                                  remaining Category button routes the postback)
+#                                                                  → SearchCategory.aspx
+#   4. POST SearchCategory.aspx   __EVENTTARGET=ddlGazetteCategory
+#                                 ddlGazetteCategory='Extra Ordinary'
+#                                 (repopulates part/section dropdown)
+#   5. POST SearchCategory.aspx   txtDateFrom/txtDateTo (dd-Mon-yyyy)
+#                                 + ImgSubmitDetails.x/.y          → tbl_Gazette rows
+#
+# Only EXTRAORDINARY gazettes are scraped: substantive ministry notifications
+# (rules, amendments, commencement notifications) are published as EO issues
+# with real subject lines. Weekly gazettes are compiled multi-ministry volumes
+# whose listing subject is literally "This Gazette may contains Multiple
+# Subjects" — a keyword screen on the title can never match, so registering
+# Weekly would only waste requests.
+#
+# Screen: source["keywords"] (REALTIME_KEYWORDS) against Subject + Ministry.
+
+EGAZETTE_LOOKBACK_DAYS = 3     # today + 2 prior days; history dedup absorbs overlap
+_EGAZETTE_MAX_PAGES    = 8     # pagination cap per run (defensive)
+_EGZ_WINDOW_OPEN_RE    = re.compile(r"window\.open\('(?P<href>[^']+)'")
+
+# Buttons never to post back (Hindi toggle, layout toggles) + the alternate
+# search modes on SearchMenu.aspx that must be dropped so the Category search
+# button is the one the server sees.
+_EGZ_SKIP_ALWAYS = {"btnStandard", "btn_Reforms", "btnHindi"}
+_EGZ_SKIP_SEARCHMENU = {
+    "btnGazetteID", "btnContentID", "btnMinistry", "btnBill",
+    "btnNotification", "btnPublish", "btneSearch",
+}
+
+
+def _egz_find_form(soup, endp: str):
+    """Return the <form> whose action basename matches endp (case-insensitive)."""
+    endp = endp.lower()
+    for form in soup.find_all("form"):
+        action = (form.get("action") or "").lower()
+        if action.rstrip("/").split("/")[-1] == endp or action in (f"./{endp}", endp):
+            return form
+    return None
+
+
+def _egz_form_data(soup, endp: str, skip: set | None = None) -> list | None:
+    """
+    Collect (name, value) pairs from the ASP.NET form on the page — inputs
+    (minus type=image and skipped buttons) and selects (selected option, or
+    the search placeholders for the ministry/department/office dropdowns).
+    Returns None if the form isn't found (page flow broke).
+    """
+    form = _egz_find_form(soup, endp)
+    if form is None:
+        return None
+    skip = skip or set()
+    postdata = []
+    for tag in form.find_all(re.compile(r"^(input|select)$")):
+        name = tag.get("name")
+        if not name:
+            continue
+        if tag.name == "input":
+            if tag.get("type") == "image" or name in _EGZ_SKIP_ALWAYS or name in skip:
+                continue
+            postdata.append((name, tag.get("value") or ""))
+        else:  # select
+            if name == "ddlMinistry":
+                value = "Select Ministry"
+            elif name == "ddlDepartment":
+                value = "Select Department"
+            elif name == "ddlOffice":
+                value = "Select Office"
+            else:
+                opt = tag.find("option", {"selected": "selected"})
+                value = (opt.get("value") or "") if opt else ""
+            postdata.append((name, value))
+    return postdata
+
+
+def _egz_set(postdata: list, key: str, value: str) -> list:
+    """Replace key's value in postdata (append if absent)."""
+    out, found = [], False
+    for k, v in postdata:
+        if k == key:
+            out.append((k, value))
+            found = True
+        else:
+            out.append((k, v))
+    if not found:
+        out.append((key, value))
+    return out
+
+
+def _egz_post(session, url: str, postdata: list):
+    """POST a postback; return (soup, final_url) or (None, url) on failure."""
+    try:
+        r = session.post(url, data=postdata, timeout=GOV_IN_TIMEOUT,
+                         headers={"Referer": url})
+        if r.status_code == 200 and len(r.content) > 500:
+            return BeautifulSoup(r.text, "html.parser"), r.url
+        print(f"    ✗  egazette postback HTTP {r.status_code} at {url.split('/')[-1]}")
+    except Exception as e:
+        print(f"    ✗  egazette postback failed: {e}")
+    return None, url
+
+
+def _egz_pdf_url(download_td, gazette_id: str, issue_dt, base_url: str) -> str:
+    """
+    Best-effort stable link for a result row.
+    Preferred: the window.open('…pdf') href in the Download cell (present on
+    some result layouts). Fallback: derive from the gazette ID — the trailing
+    numeric segment of CG-DL-E-ddmmyyyy-NNNNNN is the upload ID under
+    /WriteReadData/{year}/{NNNNNN}.pdf (the portal's canonical PDF path).
+    Last resort: portal homepage (uid then keys off gazette ID via title).
+    """
+    if download_td is not None:
+        a = download_td.find("a")
+        if a:
+            for attr in (a.get("onclick") or "", a.get("href") or ""):
+                m = _EGZ_WINDOW_OPEN_RE.search(attr)
+                if m:
+                    return urljoin(base_url, m.group("href"))
+    m = re.search(r"-(\d{4,})\s*$", gazette_id or "")
+    if m and issue_dt:
+        return f"https://egazette.gov.in/WriteReadData/{issue_dt.year}/{m.group(1)}.pdf"
+    return "https://egazette.gov.in/"
+
+
+def parse_egazette(source: dict) -> list:
+    """
+    Gazette of India parser — Extraordinary gazettes for the last
+    EGAZETTE_LOOKBACK_DAYS, keyword-screened on Subject + Ministry.
+    """
+    hits: list[dict] = []
+    keywords = source["keywords"]
+    org = source["org"]
+
+    session = requests.Session()
+    session.headers.update(SESSION.headers)
+
+    # 1. Homepage → capture cookieless-session base URL
+    try:
+        r = session.get("https://egazette.gov.in/", timeout=GOV_IN_TIMEOUT,
+                        allow_redirects=True)
+        if r.status_code != 200:
+            print(f"    ✗  egazette homepage HTTP {r.status_code}")
+            return []
+    except Exception as e:
+        print(f"    ✗  egazette unreachable: {e}")
+        return []
+    curr_url = r.url                       # …/(S(token))/default.aspx
+    soup = BeautifulSoup(r.text, "html.parser")
+
+    # 2. default.aspx → Search menu (menu item is a __doPostBack('sgzt',''))
+    postdata = _egz_form_data(soup, curr_url.split("/")[-1].lower() or "default.aspx")
+    if postdata is None:
+        print("    ✗  egazette: form not found on default.aspx")
+        return []
+    postdata = _egz_set(postdata, "__EVENTTARGET", "sgzt")
+    postdata = _egz_set(postdata, "ddlkeyword", "Select Keyword")
+    soup, curr_url = _egz_post(session, curr_url, postdata)
+    if soup is None:
+        return []
+
+    # 3. SearchMenu.aspx → Category (date-wise) search page
+    postdata = _egz_form_data(soup, "searchmenu.aspx", skip=_EGZ_SKIP_SEARCHMENU)
+    if postdata is None:
+        print("    ✗  egazette: SearchMenu form not found (flow changed?)")
+        return []
+    search_url = urljoin(curr_url, "SearchCategory.aspx")
+    soup, curr_url = _egz_post(session, search_url, postdata)
+    if soup is None:
+        return []
+
+    # 4. Select 'Extra Ordinary' (triggers part/section repopulation postback)
+    endp = curr_url.split("/")[-1].lower()
+    postdata = _egz_form_data(soup, endp)
+    if postdata is None:
+        print("    ✗  egazette: SearchCategory form not found")
+        return []
+    postdata = _egz_set(postdata, "__EVENTTARGET", "ddlGazetteCategory")
+    postdata = _egz_set(postdata, "ddlGazetteCategory", "Extra Ordinary")
+    soup, curr_url = _egz_post(session, curr_url, postdata)
+    if soup is None:
+        return []
+
+    # 5. Submit the date window
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(ist)
+    date_from = (today - timedelta(days=EGAZETTE_LOOKBACK_DAYS - 1)).strftime("%d-%b-%Y")
+    date_to = today.strftime("%d-%b-%Y")
+    endp = curr_url.split("/")[-1].lower()
+    postdata = _egz_form_data(soup, endp)
+    if postdata is None:
+        return []
+    postdata = _egz_set(postdata, "ddlGazetteCategory", "Extra Ordinary")
+    postdata = _egz_set(postdata, "txtDateFrom", date_from)
+    postdata = _egz_set(postdata, "txtDateTo", date_to)
+    submit_data = postdata + [("ImgSubmitDetails.x", "63"), ("ImgSubmitDetails.y", "22")]
+    soup, curr_url = _egz_post(session, curr_url, submit_data)
+    if soup is None:
+        return []
+
+    # 6. Walk result pages
+    seen: set[str] = set()
+    rows_seen = 0
+    for page in range(1, _EGAZETTE_MAX_PAGES + 1):
+        table = soup.find("table", {"id": "tbl_Gazette"})
+        if table is None:
+            if page == 1:
+                print(f"    ·  egazette: no results table for {date_from} → {date_to}")
+            break
+
+        order: list[str] = []
+        next_link = None
+        for tr in table.find_all("tr"):
+            # Header row → column order
+            ths = tr.find_all("th")
+            if ths and not order:
+                for th in ths:
+                    txt = th.get_text(" ", strip=True)
+                    if re.search(r"Ministry", txt, re.I):
+                        order.append("ministry")
+                    elif re.search(r"Subject", txt, re.I):
+                        order.append("subject")
+                    elif re.search(r"Issue\s+Date", txt, re.I):
+                        order.append("issuedate")
+                    elif re.search(r"(Gazette\s+ID)|(UGID)", txt, re.I):
+                        order.append("gazetteid")
+                    elif re.search(r"Download", txt, re.I):
+                        order.append("download")
+                    else:
+                        order.append("")
+                continue
+            # Pager row → find the link to the next page number
+            if "pager" in (tr.get("class") or []):
+                for a in tr.find_all("a", href=True):
+                    txt = a.get_text(strip=True)
+                    if txt.isdigit() and int(txt) == page + 1:
+                        next_link = a
+                        break
+                continue
+            if not order:
+                continue
+
+            tds = tr.find_all("td")
+            if not tds:
+                continue
+            rows_seen += 1
+            row = {"ministry": "", "subject": "", "issuedate": "",
+                   "gazetteid": "", "download_td": None}
+            for i, td in enumerate(tds):
+                col = order[i] if i < len(order) else ""
+                if col == "download":
+                    row["download_td"] = td
+                elif col:
+                    row[col] = td.get_text(" ", strip=True)
+
+            gz_id = row["gazetteid"]
+            if not gz_id or gz_id in seen:
+                continue
+            gate_text = f"{row['subject']} {row['ministry']}"
+            kw = first_keyword_match(gate_text, keywords)
+            if not kw:
+                continue
+            seen.add(gz_id)
+            issue_dt = parse_fuzzy_date(row["issuedate"])
+            pdf_url = _egz_pdf_url(row["download_td"], gz_id, issue_dt, curr_url)
+            title = row["subject"] or f"Gazette {gz_id}"
+            hits.append({
+                "org": org,
+                "category": source["category"],
+                "keyword": kw,
+                "title": title,
+                "article_url": pdf_url,
+                "date": fmt_date(row["issuedate"]) if row["issuedate"] else "",
+                "snippet": clean_snippet(
+                    f"{row['ministry']} — Gazette ID {gz_id}"
+                    f" — published {row['issuedate']}"
+                ),
+                # Gazette ID is the stable identity — PDF URLs may be derived,
+                # so key the uid on the ID to keep history dedup exact.
+                "uid": make_uid("", f"egazette:{gz_id}"),
+            })
+
+        if next_link is None:
+            break
+        # __doPostBack('grd…','Page$N') → EVENTTARGET / EVENTARGUMENT postback
+        groups = re.findall(r"'([^']+)'", next_link.get("href") or "")
+        if len(groups) < 2:
+            break
+        endp = curr_url.split("/")[-1].lower()
+        postdata = _egz_form_data(soup, endp)
+        if postdata is None:
+            break
+        postdata = _egz_set(postdata, "__EVENTTARGET", groups[0])
+        postdata = _egz_set(postdata, "__EVENTARGUMENT", groups[1])
+        postdata = [(k, v) for k, v in postdata
+                    if not k.startswith("ImgSubmitDetails")]
+        soup, curr_url = _egz_post(session, curr_url, postdata)
+        if soup is None:
+            break
+
+    print(f"    ·  egazette: {rows_seen} EO row(s) {date_from} → {date_to}, "
+          f"{len(hits)} passed keyword screen")
+    return hits
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # TENDER HELPERS  (module-level so all three tender parsers can share them)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -3086,6 +3424,7 @@ PARSER_MAP = {
     "rss_news": parse_rss,
     "html": parse_html,
     "sebi": parse_sebi,
+    "egazette": parse_egazette,
     "gem": parse_gem,
     "cppp": parse_cppp,
     "gem_bidplus": parse_gem_bidplus,
