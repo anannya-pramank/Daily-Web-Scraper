@@ -1,0 +1,37 @@
+name: Diagnose eGazette Postback Chain
+
+# Manual, one-off diagnostic — not scheduled. Run it from the Actions tab
+# whenever the "SearchCategory form not found" failure shows up in the
+# ESG scraper log, then download the `egz-debug-dump` artifact to see
+# exactly which step in the postback chain broke.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run diagnostic
+        run: python diagnose_egazette.py | tee egz_diagnostic_output.txt
+
+      - name: Upload HTML dumps + log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: egz-debug-dump
+          path: |
+            egz_debug/**
+            egz_diagnostic_output.txt
+          retention-days: 14
