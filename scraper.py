@@ -172,20 +172,72 @@ def fmt_date(raw: str) -> str:
 TENDER_KEYWORDS = [
     # Topic keywords for tenders. Whole-word, case-insensitive; trailing *
     # marks a prefix stem ("Sustainab*" → Sustainable / Sustainability).
-    # Refined 08-Jul-2026: tenders are now LEGAL-ONLY. A row must FIRST pass
-    # the mandatory legal-nature gate (TENDER_LEGAL_KEYWORDS below) — nothing
-    # non-legal is surfaced regardless of topic matches. These topic terms
-    # then decide the keyword chip shown in the email; a legal tender that
-    # also mentions an ESG topic is chipped with the topic, otherwise with
-    # the matched legal term.
+    # 15-Jul-2026: these are CHIP keywords only — they label the email chip
+    # but do not by themselves admit a tender. Admission is decided by
+    # is_tender_relevant() below: EITHER the legal-nature gate (spec
+    # 08-Jul-2026) OR the ESG-topic gate (TENDER_TOPIC_STRONG + engagement
+    # signal, restored 15-Jul-2026 after the legal-only spec dropped the
+    # IIFCL MRV/Carbon-Accounting/ESG empanelment EOI of 10-Jul-2026).
     "Carbon Credit", "Carbon Offset", "Carbon Trading", "Carbon Footprint",
     "Carbon", "Carbon Neutral", "Net Zero", "Carbon Sequestration",
+    "Carbon Accounting", "MRV",
     "Scope 1", "Scope 2", "Scope 3", "GHG", "Green House Gas", "Green House Gases",
     "ESG", "ESG Disclosure", "Climate Change", "Green Finance", "Sustainable Finance",
     "BRSR", "BRSR Core", "Reasonable Assurance", "Assurance Provider",
     "Assurance", "Assessment", "Sustainab*", "Sustainability",
     "CCTS", "Carbon Market",
 ]
+
+# ── Tender ESG-topic gate (admission track B) ─────────────────────────────────
+# Restored 15-Jul-2026. The 08-Jul legal-ONLY spec silently killed the entire
+# ESG side of the tender scan: an ESG-topic tender with no legal wording
+# (e.g. IIFCL EOI IIFCL/SFD/EOI/2026-27/15 — "Empanelment of Consultancy
+# Firm/Company for MRV Systems, Carbon Accounting & Sustainability-Data
+# Architecture / ESG Frameworks, Impact Reporting & Sustainability Disclosure
+# Systems", published 10-Jul-2026, flashed on CPPP) hit topic keywords and an
+# engagement signal but fell at the mandatory legal gate → never surfaced.
+# Design mirrors the legal gate's WEAK+engagement pattern to keep the
+# false-positive protections that motivated 08-Jul:
+#   • Only STRONG, unambiguous ESG terms admit. Bare "Carbon" (carbon steel),
+#     "Sustainab*" (sustainable development works), "Assessment"/"Assurance"
+#     (structural assessment, quality assurance of works) stay chip-only —
+#     they never admit a row on their own.
+#   • A STRONG topic term must co-occur with an engagement/procurement-of-
+#     services signal (Empanelment / EOI / RFP / Consultancy …) — a goods or
+#     works tender that merely name-drops ESG carries none.
+#   • TENDER_EXCLUDE_KEYWORDS still veto first, before either track runs.
+TENDER_TOPIC_STRONG = [
+    "ESG", "BRSR", "BRSR Core", "MRV",
+    "Carbon Accounting", "Carbon Credit", "Carbon Credits", "Carbon Market",
+    "Carbon Trading", "Carbon Footprint", "Carbon Neutral", "Carbon Offset",
+    "Carbon Sequestration", "Net Zero", "CCTS",
+    "GHG", "Greenhouse Gas", "Green House Gas", "Green House Gases",
+    "Decarbonisation", "Decarbonization",
+    "Climate Change", "Climate Risk", "Climate Action Plan",
+    "Sustainable Finance", "Green Finance",
+    "Sustainability Report", "Sustainability Reporting",
+    "Sustainability Disclosure", "Sustainability Audit",
+    "Reasonable Assurance", "Assurance Provider",
+]
+
+
+def is_esg_tender(text: str) -> str | None:
+    """
+    ESG-topic admission check (track B). Returns the matched STRONG topic
+    term when it co-occurs with an engagement signal, else None.
+    """
+    topic = first_keyword_match(text, TENDER_TOPIC_STRONG)
+    if topic and first_keyword_match(text, TENDER_ENGAGEMENT_KEYWORDS):
+        return topic
+    return None
+
+
+def is_tender_relevant(text: str) -> str | None:
+    """
+    Combined admission gate: legal-nature (track A) OR ESG-topic (track B).
+    Returns the matched admitting term, or None.
+    """
+    return is_legal_tender(text) or is_esg_tender(text)
 
 # ── Tender legal-nature gate (MANDATORY — legal tenders only) ─────────────────
 # Two-tier matching, spec'd 09-Jul-2026 after live false positives:
@@ -372,35 +424,39 @@ TENDER_EXCLUDE_KEYWORDS = [
 # Gate diagnostics — incremented by tender_keyword_match across ALL tender
 # parsers and printed in the run summary, so a "0 tender match(es)" day is
 # distinguishable between genuine scarcity and an over-tight gate.
-TENDER_GATE_STATS = {"rows": 0, "excluded": 0, "no_legal": 0, "passed": 0}
+TENDER_GATE_STATS = {"rows": 0, "excluded": 0, "no_gate": 0,
+                     "passed_legal": 0, "passed_topic": 0}
 
 
 def tender_keyword_match(text: str, keywords: list) -> str | None:
     """
-    Tender-specific keyword matcher — LEGAL TENDERS ONLY. A row qualifies
-    only when BOTH hold:
+    Tender-specific keyword matcher. A row qualifies only when BOTH hold:
       1. No TENDER_EXCLUDE_KEYWORDS term is present (pipes, stationery,
          Legal Metrology equipment, streetlight/road works etc. vetoed).
-      2. It passes the two-tier legal-nature gate (is_legal_tender): a
-         STRONG legal-engagement phrase, or a WEAK legal term co-occurring
-         with an engagement/procurement signal. This is what admits
-         empanelment EOIs while rejecting rows where "Advocate" or "Legal
-         Services" is a street descriptor or a buyer's name.
-    Returns the keyword chip: the matched ESG topic keyword when present
-    (legal tender that also mentions BRSR / Carbon / ESG …), otherwise the
-    matched legal-nature term — so ALL legal tenders surface, chipped by
-    whichever signal is most specific.
+      2. It passes EITHER admission track (is_tender_relevant):
+         A. legal-nature gate — a STRONG legal-engagement phrase, or a WEAK
+            legal term co-occurring with an engagement/procurement signal
+            (admits legal empanelment EOIs, rejects rows where "Advocate" /
+            "Legal Services" is a street descriptor or a buyer's name); OR
+         B. ESG-topic gate — a STRONG ESG term (TENDER_TOPIC_STRONG)
+            co-occurring with an engagement signal (admits BRSR / carbon
+            accounting / ESG consultancy EOIs, rejects goods/works rows
+            that merely name-drop an ESG word).
+    Returns the keyword chip: the matched topic keyword when present,
+    otherwise the term that admitted the row — so both legal and ESG
+    tenders surface, chipped by whichever signal is most specific.
     """
     TENDER_GATE_STATS["rows"] += 1
     if first_keyword_match(text, TENDER_EXCLUDE_KEYWORDS):
         TENDER_GATE_STATS["excluded"] += 1
         return None
     legal_kw = is_legal_tender(text)
-    if not legal_kw:
-        TENDER_GATE_STATS["no_legal"] += 1
+    topic_kw = None if legal_kw else is_esg_tender(text)
+    if not legal_kw and not topic_kw:
+        TENDER_GATE_STATS["no_gate"] += 1
         return None
-    TENDER_GATE_STATS["passed"] += 1
-    return first_keyword_match(text, keywords) or legal_kw
+    TENDER_GATE_STATS["passed_legal" if legal_kw else "passed_topic"] += 1
+    return first_keyword_match(text, keywords) or legal_kw or topic_kw
 
 
 SEBI_KEYWORDS = [
@@ -2995,10 +3051,10 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
             if href in seen or len(title) < 5:
                 continue
             kw_match = tender_keyword_match(f"{title} {row_text}", keywords)
-            # AI triage can only rescue rows that STILL pass the mandatory
-            # legal-nature gate — tenders are legal-only (spec 08-Jul-2026).
+            # AI triage can only rescue rows that STILL pass an admission
+            # track — legal-nature OR ESG-topic (dual-track, 15-Jul-2026).
             ai_tag = ai_flags.get(row_idx)
-            if ai_tag and not is_legal_tender(f"{title} {row_text}"):
+            if ai_tag and not is_tender_relevant(f"{title} {row_text}"):
                 ai_tag = None
             if not kw_match and not ai_tag:
                 continue
@@ -3459,9 +3515,9 @@ for source in SOURCES:
 print(f"\n  Total raw matches: {len(all_results)}")
 if TENDER_GATE_STATS["rows"]:
     _s = TENDER_GATE_STATS
-    print(f"  Tender legal-gate: {_s['rows']} row(s) evaluated → "
-          f"{_s['passed']} passed | {_s['no_legal']} non-legal | "
-          f"{_s['excluded']} excluded")
+    print(f"  Tender gate: {_s['rows']} row(s) evaluated → "
+          f"{_s['passed_legal']} legal | {_s['passed_topic']} ESG-topic | "
+          f"{_s['no_gate']} no-gate | {_s['excluded']} excluded")
 
 # ==========================================
 # 6. DEDUPLICATION AGAINST HISTORY (URL-LEVEL, with 24h grace window)
