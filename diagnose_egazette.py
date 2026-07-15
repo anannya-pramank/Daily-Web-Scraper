@@ -181,10 +181,13 @@ def main():
         return
 
     # Step 3: SearchMenu.aspx -> SearchCategory.aspx
+    # FIX APPLIED: btnCategory is a WebForms submit button, so the postback
+    # must go to SearchMenu.aspx's own URL (curr_url), not a hand-built
+    # SearchCategory.aspx URL. The server's click handler redirects to
+    # SearchCategory.aspx server-side; `requests` follows that redirect.
     postdata = form_data(soup, "searchmenu.aspx", skip=_EGZ_SKIP_SEARCHMENU)
-    search_url = urljoin(curr_url, "SearchCategory.aspx")
     try:
-        r = session.post(search_url, data=postdata, timeout=TIMEOUT, headers={"Referer": curr_url})
+        r = session.post(curr_url, data=postdata, timeout=TIMEOUT, headers={"Referer": curr_url})
     except Exception as e:
         print(f"\nFATAL: step 3 postback failed: {e}")
         return
