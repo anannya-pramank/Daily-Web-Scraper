@@ -2479,13 +2479,20 @@ def parse_egazette(source: dict) -> list:
     if soup is None:
         return []
 
-    # 3. SearchMenu.aspx → Category (date-wise) search page
+    # 3. SearchMenu.aspx → Category (date-wise) search page.
+    # btnCategory is a server-side WebForms submit button, not a link — the
+    # click postback MUST go to SearchMenu.aspx's own action (curr_url), not
+    # a hand-built SearchCategory.aspx URL. Posting SearchMenu's __VIEWSTATE
+    # / __EVENTVALIDATION straight to a different page trips ASP.NET's state
+    # validation and the server bounces to error.aspx?aspxerrorpath=/Search
+    # Category.aspx (this was the "SearchCategory form not found" failure).
+    # The server-side btnCategory_Click handler does its own redirect to
+    # SearchCategory.aspx, which `requests` follows automatically.
     postdata = _egz_form_data(soup, "searchmenu.aspx", skip=_EGZ_SKIP_SEARCHMENU)
     if postdata is None:
         print("    ✗  egazette: SearchMenu form not found (flow changed?)")
         return []
-    search_url = urljoin(curr_url, "SearchCategory.aspx")
-    soup, curr_url = _egz_post(session, search_url, postdata)
+    soup, curr_url = _egz_post(session, curr_url, postdata)
     if soup is None:
         return []
 
