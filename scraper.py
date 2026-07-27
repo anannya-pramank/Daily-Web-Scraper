@@ -1,8 +1,12 @@
 import os
 import re
+import ssl
 import json
 import time
+import socket
+import atexit
 import hashlib
+import tempfile
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -1323,9 +1327,202 @@ SESSION.headers.update({
     "Connection": "keep-alive",
 })
 
+# ==========================================
+# 2b. TLS CHAIN REPAIR  (incomplete-chain gov portals)
+# ==========================================
+# Several NIC/gov portals — egazette.gov.in among them — send only their leaf
+# certificate and omit the intermediate CA. Browsers hide this by fetching the
+# missing intermediate from the leaf's AIA (Authority Information Access)
+# extension; OpenSSL does not chase AIA, so requests fails with
+#     SSLCertVerificationError: unable to get local issuer certificate
+# even though the certificate itself is valid and unexpired. The portal is not
+# down and the runner's CA store is not stale — the chain is just incomplete.
+#
+# Recovery ladder, run at most once per host and cached for the rest of the run.
+# Nothing happens until an SSLError is actually raised, so the happy path pays
+# no extra handshake:
+#   1. $SCRAPER_CA_BUNDLE, if set — an explicit bundle wins over everything.
+#   2. AIA chasing: pull the leaf, read its caIssuers URL, download the
+#      intermediate, append it to the certifi bundle, re-verify. Up to
+#      3 hops, for chains missing more than one link.
+#   3. Only if 1 and 2 fail, and only for hosts in $TLS_INSECURE_HOSTS
+#      (default: egazette.gov.in): connect unverified and log it loudly.
+#      These sources are public, read-only and credential-free, so an
+#      unauthenticated connection discloses nothing — but it does forfeit
+#      tamper detection, which is why it is the last rung and not the first.
+
+_TLS_VERIFY: dict[str, object] = {}       # host -> True | bundle path | False
+_TLS_TEMP_BUNDLES: list[str] = []
+_TLS_MAX_CHAIN_HOPS = 3
+_TLS_DEFAULT_INSECURE_HOSTS = "egazette.gov.in"
+
+# caIssuers URLs sit in the DER as plain IA5Strings — no ASN.1 parser (and no
+# `cryptography` dependency) needed to find them.
+_AIA_URL_RE = re.compile(rb"https?://[\x21-\x7e]{5,200}?\.(?:crt|cer|der|p7c|p7b)")
+
+
+@atexit.register
+def _tls_cleanup_bundles():
+    for path in _TLS_TEMP_BUNDLES:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _tls_host(url: str) -> str:
+    host = urlparse(url).netloc if "://" in url else url
+    return host.split("@")[-1].split(":")[0].lower()
+
+
+def _tls_insecure_allowed(host: str) -> bool:
+    allow = os.getenv("TLS_INSECURE_HOSTS", _TLS_DEFAULT_INSECURE_HOSTS)
+    for entry in (h.strip().lower() for h in allow.split(",")):
+        if entry and (host == entry or host.endswith("." + entry)):
+            return True
+    return False
+
+
+def _tls_base_bundle() -> str | None:
+    override = os.getenv("SCRAPER_CA_BUNDLE")
+    if override and os.path.exists(override):
+        return override
+    try:
+        import certifi
+        return certifi.where()
+    except ImportError:
+        return ssl.get_default_verify_paths().cafile
+
+
+def _tls_leaf_der(host: str, port: int = 443, timeout: int = 20) -> bytes:
+    """Leaf certificate as DER, fetched without verifying it."""
+    ctx = ssl._create_unverified_context()
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        with ctx.wrap_socket(sock, server_hostname=host) as tls:
+            return tls.getpeercert(binary_form=True)
+
+
+def _tls_handshake_ok(host: str, cafile: str, port: int = 443,
+                      timeout: int = 20) -> bool:
+    try:
+        ctx = ssl.create_default_context(cafile=cafile)
+        with socket.create_connection((host, port), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=host):
+                return True
+    except Exception:
+        return False
+
+
+def _tls_fetch_issuer(der: bytes) -> tuple[bytes, bytes] | tuple[None, None]:
+    """Download the issuer named in a certificate's AIA. Returns (pem, der)."""
+    for m in _AIA_URL_RE.finditer(der):
+        url = m.group(0).decode("ascii", "ignore")
+        try:
+            r = requests.get(url, timeout=20)
+            if r.status_code != 200 or not r.content:
+                continue
+            raw = r.content
+            if raw.lstrip().startswith(b"-----BEGIN"):
+                return raw, ssl.PEM_cert_to_DER_cert(raw.decode("ascii", "ignore"))
+            return ssl.DER_cert_to_PEM_cert(raw).encode("ascii"), raw
+        except Exception:
+            continue
+    return None, None
+
+
+def _tls_repair(host: str) -> str | None:
+    """Build a CA bundle that validates `host`, or None if it can't be done."""
+    base = _tls_base_bundle()
+    if not base or not os.path.exists(base):
+        return None
+    if _tls_handshake_ok(host, base):      # bundle override alone may fix it
+        return base
+    try:
+        der = _tls_leaf_der(host)
+    except Exception:
+        return None
+    with open(base, "rb") as fh:
+        bundle = fh.read()
+    for _ in range(_TLS_MAX_CHAIN_HOPS):
+        pem, next_der = _tls_fetch_issuer(der)
+        if not pem:
+            return None
+        bundle += b"\n" + pem.strip() + b"\n"
+        fd, path = tempfile.mkstemp(prefix=f"ca-{host}-", suffix=".pem")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(bundle)
+        _TLS_TEMP_BUNDLES.append(path)
+        if _tls_handshake_ok(host, path):
+            return path
+        der = next_der
+    return None
+
+
+def _tls_verify_for(url: str):
+    """verify= value for this host: True until proven otherwise."""
+    return _TLS_VERIFY.get(_tls_host(url), True)
+
+
+def _tls_recover(url: str) -> bool:
+    """
+    Called after an SSLError. Works out (once per host) whether a retry can
+    succeed and caches the verify setting. Returns True if a retry is worth it.
+    """
+    host = _tls_host(url)
+    if host in _TLS_VERIFY:
+        return _TLS_VERIFY[host] is not True     # already downgraded → retry
+
+    patched = _tls_repair(host)
+    if patched:
+        _TLS_VERIFY[host] = patched
+        print(f"    ⚠  {host}: server omits its intermediate CA — chain "
+              f"completed via AIA, verification still on")
+        return True
+
+    if _tls_insecure_allowed(host):
+        _TLS_VERIFY[host] = False
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        except Exception:
+            pass
+        print(f"    ⚠  {host}: TLS chain could not be completed — continuing "
+              f"UNVERIFIED for this public source (see TLS_INSECURE_HOSTS)")
+        return True
+
+    _TLS_VERIFY[host] = True
+    print(f"    ✗  {host}: TLS verification failed and host is not in "
+          f"TLS_INSECURE_HOSTS — not retrying")
+    return False
+
+
+def _tls_get(session, url: str, **kw):
+    """session.get() that repairs the chain once and retries on SSLError."""
+    kw.setdefault("verify", _tls_verify_for(url))
+    try:
+        return session.get(url, **kw)
+    except requests.exceptions.SSLError:
+        if not _tls_recover(url):
+            raise
+        kw["verify"] = _tls_verify_for(url)
+        return session.get(url, **kw)
+
+
+def _tls_post(session, url: str, **kw):
+    """session.post() with the same one-shot chain repair."""
+    kw.setdefault("verify", _tls_verify_for(url))
+    try:
+        return session.post(url, **kw)
+    except requests.exceptions.SSLError:
+        if not _tls_recover(url):
+            raise
+        kw["verify"] = _tls_verify_for(url)
+        return session.post(url, **kw)
+
+
 # Warm SEBI session once at startup
 try:
-    SESSION.get("https://www.sebi.gov.in/", timeout=15)
+    _tls_get(SESSION, "https://www.sebi.gov.in/", timeout=15)
 except Exception:
     pass
 
@@ -1741,7 +1938,8 @@ def _request(url: str, *, headers: dict | None = None, accept_min_len: int = 50,
     for variant in _url_attempt_order(url):
         for attempt in range(attempts_per_variant):
             try:
-                r = SESSION.get(variant, headers=headers or {}, timeout=timeout)
+                r = _tls_get(SESSION, variant, headers=headers or {},
+                             timeout=timeout)
                 # Any HTTP response at all → host is alive; reset the breaker.
                 _HOST_FAILURES[fam] = 0
                 network_failure = False
@@ -2467,8 +2665,8 @@ def _egz_set(postdata: list, key: str, value: str) -> list:
 def _egz_post(session, url: str, postdata: list):
     """POST a postback; return (soup, final_url) or (None, url) on failure."""
     try:
-        r = session.post(url, data=postdata, timeout=GOV_IN_TIMEOUT,
-                         headers={"Referer": url})
+        r = _tls_post(session, url, data=postdata, timeout=GOV_IN_TIMEOUT,
+                      headers={"Referer": url})
         if r.status_code == 200 and len(r.content) > 500:
             return BeautifulSoup(r.text, "html.parser"), r.url
         print(f"    ✗  egazette postback HTTP {r.status_code} at {url.split('/')[-1]}")
@@ -2513,14 +2711,17 @@ def parse_egazette(source: dict) -> list:
 
     # 1. Homepage → capture cookieless-session base URL
     try:
-        r = session.get("https://egazette.gov.in/", timeout=GOV_IN_TIMEOUT,
-                        allow_redirects=True)
+        r = _tls_get(session, "https://egazette.gov.in/",
+                     timeout=GOV_IN_TIMEOUT, allow_redirects=True)
         if r.status_code != 200:
             print(f"    ✗  egazette homepage HTTP {r.status_code}")
             return []
     except Exception as e:
         print(f"    ✗  egazette unreachable: {e}")
         return []
+    # Pin whatever verify setting worked onto the session so every later
+    # postback in this cookieless flow reuses it without re-probing.
+    session.verify = _tls_verify_for("https://egazette.gov.in/")
     curr_url = r.url                       # …/(S(token))/default.aspx
     soup = BeautifulSoup(r.text, "html.parser")
 
