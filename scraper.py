@@ -1115,9 +1115,9 @@ SOURCES = [
     },
     {
         "org": "UN PRI",
-        # News & press lives on the public. subdomain — www.unpri.org/news-and-press 404s
-        # (verified 08-Jul-2026 after a live-run 404).
-        "url": "https://public.unpri.org/news-and-events/news-and-press",
+        # public.unpri.org returned 410 Gone from 25-Nov-2026; the page moved
+        # back to www (verified 200 on 26-Nov-2026).
+        "url": "https://www.unpri.org/news-and-events/news-and-press",
         "rss": None,
         "rss_gnews": (
             "https://news.google.com/rss/search"
@@ -1912,7 +1912,7 @@ def assign_theme(keyword: str, title: str = "", snippet: str = "") -> str:
                 return theme
     return DEFAULT_THEME
 
-def clean_snippet(text: str, max_len: int = 260) -> str:
+def clean_snippet(text: str, max_len: int = 700) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text[:max_len] + "…" if len(text) > max_len else text
 
@@ -3067,6 +3067,9 @@ def _extract_deadline(row_text: str, now: datetime):
 
 CPPP_SPA_URL = "https://eprocure.gov.in/cppp/#/activeTenders"
 CPPP_SPA_TIMEOUT_MS = 90_000
+# Set when eprocure.gov.in can't be loaded, so the email says "portal
+# unreachable" instead of a misleading "no new tenders".
+TENDER_PORTAL_DOWN = False
 _CPPP_ROUTE_ROWS: dict[str, list] = {}  # route → [(row_text, title, href, reference), …]
 
 # route → (global-property name of the endpoint, default on-load payload)
@@ -3117,6 +3120,8 @@ def _cppp_spa_fetch_all() -> dict[str, list]:
     except Exception as e:
         msg = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
         print(f"    ⚠  GeM-CPPP load failed: {msg}")
+        global TENDER_PORTAL_DOWN
+        TENDER_PORTAL_DOWN = True
         return {}
 
 
@@ -4065,7 +4070,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
     rows = list(df_new.itertuples(index=False))
     numbered = []
     for i, row in enumerate(rows, start=1):
-        snippet = (getattr(row, "snippet", "") or "")[:500]
+        snippet = (getattr(row, "snippet", "") or "")[:700]
         numbered.append(
             f'{i}. [{row.category}] "{row.title}" — {row.org}. {snippet}'
         )
@@ -4384,7 +4389,7 @@ def render_header(count: int) -> str:
             f'<p style="margin:0 0 6px 0;font-size:28px;line-height:1.2;color:#ffffff;{_SERIF}">'
             f'{ist.strftime("%A, %d %B %Y")}</p>'
             f'<p style="margin:0;font-size:13px;color:#aab6c9;{_FONT}">'
-            f'{count} new item{"s" if count != 1 else ""} across regulation, markets and tenders</p>',
+            f'{count} new item{"s" if count != 1 else ""} today</p>',
             _NAVY, f"padding-top:30px;padding-bottom:28px;{_PAD}",
         )
     )
@@ -4489,7 +4494,12 @@ def render_category_section(
     if cat_df.empty:
         inner = _row(
             f'<p style="margin:0;font-size:13px;color:{_MUTED};font-style:italic;{_FONT}">'
-            f"No new {category.lower()} today.</p>",
+            + (
+                "Tender portal (eprocure.gov.in) could not be reached today &mdash; "
+                "no tenders were checked.</p>"
+                if category == "Tenders" and TENDER_PORTAL_DOWN
+                else f"No new {category.lower()} today.</p>"
+            ),
             _WHITE, f"padding-top:12px;padding-bottom:20px;{_PAD}",
         )
     elif category == "ESG News" and "theme" in cat_df.columns:
