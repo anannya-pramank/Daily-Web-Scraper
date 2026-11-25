@@ -2317,6 +2317,17 @@ def _scrape_article_links(
         if a:
             heading_links.append((a, h.parent or h))
 
+    # Strategy D: headings INSIDE a link — card layouts where the whole tile
+    # is the <a> and the headline is a plain h2–h5 within it. Strategies A–C
+    # read only the first link in a container or links inside headings, so
+    # on Bain (h5 in <a>) and Khaitan (h3 in <a>) they saw just nav/promo
+    # links and every run returned 0 (26-Nov-2026). Title = heading text.
+    wrapped_headings = []
+    for h in soup.find_all(["h2", "h3", "h4", "h5"]):
+        a = h.find_parent("a", href=True)
+        if a and not h.find("a", href=True):
+            wrapped_headings.append((h.get_text(" ", strip=True), a))
+
     def _consider(title: str, href: str, body_text: str, ctx) -> None:
         if not href.startswith("http"):
             href = urljoin(base_url, href)
@@ -2367,6 +2378,9 @@ def _scrape_article_links(
     for a, context in heading_links:
         body_text = context.get_text(separator=" ", strip=True) if context else a.get_text(strip=True)
         _consider(a.get_text(strip=True), a["href"], body_text, context)
+
+    for title, a in wrapped_headings:
+        _consider(title, a["href"], a.get_text(separator=" ", strip=True), a)
 
     return hits
 
@@ -2428,6 +2442,25 @@ def parse_html(source: dict) -> list[dict]:
     )
     print(f"    ✓ HTML scrape: {len(hits)} match(es) (capped at {MAX_PER_SOURCE})")
     return hits[:MAX_PER_SOURCE]
+
+
+def _gnews_recent(url: str) -> str:
+    """
+    Add Google News' `when:3d` operator to a search-feed query.
+
+    Without it Google returns up to 100 results ranked by RELEVANCE, mostly
+    weeks old, and NEWS_CUTOFF (72h) then discards nearly all of them —
+    measured 26-Nov-2026: GRI returned the same 58 stale entries every day,
+    Mondaq/SBTi/ESG News 0 fresh of 100, PIB 7 fresh vs 65 with when:3d.
+    `when:3d` matches the 72h window, so every returned entry is usable;
+    it was equal or better for all 41 Google News sources tested.
+    """
+    parts = urlparse(url)
+    if "news.google.com" not in parts.netloc or "when%3A" in parts.query or "when:" in parts.query:
+        return url
+    query = re.sub(r"(^|&)q=([^&]*)", lambda m: f"{m.group(1)}q={m.group(2)}+when%3A3d",
+                   parts.query, count=1)
+    return urlunparse(parts._replace(query=query))
 
 
 def parse_rss(source: dict) -> list[dict]:
@@ -2552,7 +2585,7 @@ def parse_rss(source: dict) -> list[dict]:
     # Google's index but may have dropped off the site's own RSS window.
     rss_gnews = source.get("rss_gnews")
     if rss_gnews:
-        feed = fetch_rss(rss_gnews)
+        feed = fetch_rss(_gnews_recent(rss_gnews))
         if feed and feed.entries:
             gnews_hits = _process_feed(feed, from_gnews=True)  # shared `seen` deduplicates
             hits.extend(gnews_hits)
