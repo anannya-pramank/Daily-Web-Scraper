@@ -1,9 +1,8 @@
 name: ESG Intelligence Daily Sweep
 on:
-  schedule:
-    # Runs ~18:17 IST; the Power Automate flow holds the email until 06:00 IST.
-    # GitHub cron routinely starts hours late, so this leaves ~11h of slack.
-    - cron: '47 12 * * *'
+  # No cron: GitHub schedules start hours late. The Power Automate flow
+  # "ESG Scraper 6am Trigger" dispatches this at 05:45 IST (00:15 UTC) and the
+  # "Daily ESG Scraper Email Forwarder" flow releases the email at 06:00 IST.
   workflow_dispatch:
 jobs:
   sweep:

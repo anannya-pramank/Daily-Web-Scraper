@@ -4375,17 +4375,14 @@ def _row(inner: str, bg: str = _WHITE, style: str = "") -> str:
 
 
 def render_header(count: int) -> str:
-    # The flow holds the email until the next 06:00 IST, so date the header
-    # for the morning it lands, not the evening it was scanned.
     ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
-    deliver = ist if ist.hour < 6 else ist + timedelta(days=1)
     return (
         _row("&nbsp;", _GOLD, "height:4px;font-size:0;line-height:0;")
         + _row(
             f'<p style="margin:0 0 10px 0;font-size:11px;font-weight:700;color:{_GOLD};'
             f'letter-spacing:0.18em;text-transform:uppercase;{_FONT}">Daily ESG Digest</p>'
             f'<p style="margin:0 0 6px 0;font-size:28px;line-height:1.2;color:#ffffff;{_SERIF}">'
-            f'{deliver.strftime("%A, %d %B %Y")}</p>'
+            f'{ist.strftime("%A, %d %B %Y")}</p>'
             f'<p style="margin:0;font-size:13px;color:#aab6c9;{_FONT}">'
             f'{count} new item{"s" if count != 1 else ""} across regulation, markets and tenders</p>',
             _NAVY, f"padding-top:30px;padding-bottom:28px;{_PAD}",
