@@ -516,6 +516,12 @@ TENDER_EXCLUDE_KEYWORDS = [
 # Gate diagnostics — incremented by tender_keyword_match across ALL tender
 # parsers and printed in the run summary, so a "0 tender match(es)" day is
 # distinguishable between genuine scarcity and an over-tight gate.
+_BUYER_NAME_RE = re.compile(
+    r"Ministry of Environment,?\s+Forests?,?\s+(and|&)\s+Climate Change|"
+    r"(State\s+)?Pollution Control (Board|Committee)",
+    re.IGNORECASE,
+)
+
 TENDER_GATE_STATS = {"rows": 0, "excluded": 0, "no_gate": 0,
                      "passed_legal": 0, "passed_topic": 0,
                      "passed_energy": 0, "passed_env": 0}
@@ -542,6 +548,11 @@ def tender_keyword_match(text: str, keywords: list) -> str | None:
     is most specific.
     """
     TENDER_GATE_STATS["rows"] += 1
+    # Buyer names are not subject matter: "Ministry of Environment, Forest
+    # and Climate Change" satisfied the ESG track's "Climate Change", so any
+    # MoEFCC purchase with "Empanelment"/"Hiring of" passed (live GeM data,
+    # 26-Nov-2026: local-chemist empanelment, earth-moving equipment hire).
+    text = _BUYER_NAME_RE.sub(" ", text)
     if first_keyword_match(text, TENDER_EXCLUDE_KEYWORDS):
         TENDER_GATE_STATS["excluded"] += 1
         return None
