@@ -265,13 +265,25 @@ TENDER_ENERGY_STRONG = [
     "Green Ammonia", "Electrolyser", "Electrolyzer", "Waste to Energy",
     "Compressed Biogas", "Bio-CNG",
 ]
-# Utility-scale capacity ("300 MW", "60 MWh"), a project-delivery model, or a
-# project-level solicitation. Deliberately NOT TENDER_ENGAGEMENT_KEYWORDS: its
-# "Panel" admitted "civil works for the solar panel room" (live, 26-Nov-2026).
-_ENERGY_PROJECT_RE = re.compile(
-    r"\b\d+(\.\d+)?\s*(MW|MWh|MWp|GW|GWh)\b|\b(EPC|RfS|BOO|BOOT|DBFOT|BOT|"
-    r"Developer|Developers|Land Aggregation|Power Purchase|RFP|"
-    r"Request for Proposal|EOI|Expression of Interest|Consultancy|Consultant)\b",
+# Track C admits only work a law firm / adviser could bid on or advise around:
+# consultancy, transaction advisory, developer selection, land aggregation.
+# Construction contracts are vetoed — on 26-Nov-2026 an MW-capacity/EPC
+# signal admitted NTPC's EPC package, NHPC's hydro-mechanical works and a
+# 10-year LSTK wind contract, none of them biddable by a law firm.
+# Deliberately NOT TENDER_ENGAGEMENT_KEYWORDS: its "Panel" admitted "civil
+# works for the solar panel room".
+_ENERGY_ADVISORY_RE = re.compile(
+    r"\b(Consultan\w*|Advis[eo]r\w*|Advisory|Transaction Advis\w*|Legal|"
+    r"Due Diligence|Feasibility|Detailed Project Report|DPR|"
+    r"Selection of (Solar|Wind|RE|Renewable|Hybrid|Power)?\s*(Power\s*)?Developers?|"
+    r"Developers?|RfS|Request for Selection|Power Purchase|Land Aggregation)\b",
+    re.IGNORECASE,
+)
+_ENERGY_CONSTRUCTION_RE = re.compile(
+    r"\b(EPC|LSTK|Turnkey|Erection|Supply,?\s*(and\s*)?Installation|"
+    r"Design,?\s*Engineering|Testing\s*(and|&)\s*Commissioning|Civil\s+Works?|"
+    r"Construction\s+of|Hydro-?Mechanical|Electro-?Mechanical|"
+    r"Operation\s*(and|&)\s*Maintenance|O\s*&\s*M)\b",
     re.IGNORECASE,
 )
 
@@ -292,10 +304,12 @@ TENDER_STUDY_EXTRA = [
 
 
 def is_energy_tender(text: str) -> str | None:
-    """Track C: renewable / clean-energy project with a project-scale or
-    delivery-model signal (capacity in MW/MWh, EPC, RfS, developer, RFP …)."""
+    """Track C: renewable / clean-energy tender for advisory-type work
+    (consultancy, transaction advisory, developer selection, land
+    aggregation) — never a construction / supply / O&M contract."""
     term = first_keyword_match(text, TENDER_ENERGY_STRONG)
-    if term and _ENERGY_PROJECT_RE.search(text):
+    if (term and _ENERGY_ADVISORY_RE.search(text)
+            and not _ENERGY_CONSTRUCTION_RE.search(text)):
         return term
     return None
 
