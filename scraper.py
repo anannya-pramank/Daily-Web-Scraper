@@ -757,12 +757,20 @@ SOURCES = [
     # Caveat: most of these are JS-rendered SPAs, so a static GET may return few
     # or no article links — see parse_html's docstring for the Playwright path.
     {
+        # pwc.com returns 403 to scripted requests from any IP (verified from
+        # India 26-Nov-2026), so read it through Google News like Reuters.
         "org": "PwC",
         "url": "https://www.pwc.com/us/en/services/esg/sustainability-news-brief.html",
         "rss": None,
+        "no_html": True,
+        "rss_gnews": (
+            "https://news.google.com/rss/search"
+            "?q=site:pwc.com+ESG+OR+sustainability+OR+climate+OR+CSRD+OR+ISSB"
+            "&hl=en-US&gl=US&ceid=US:en"
+        ),
         "keywords": REALTIME_KEYWORDS,
         "category": "ESG News",
-        "parser": "html",
+        "parser": "rss_news",
     },
     {
         "org": "EY",
@@ -1080,7 +1088,7 @@ SOURCES = [
         # only — paywalled article bodies are never fetched.
         "org": "LiveLaw",
         "url": "https://www.livelaw.in/",
-        "rss": "https://www.livelaw.in/feed",
+        "rss": "https://www.livelaw.in/google_feeds.xml",  # /feed returns 500 (26-Nov-2026)
         "rss_gnews": (
             "https://news.google.com/rss/search"
             "?q=site:livelaw.in&hl=en-IN&gl=IN&ceid=IN:en"
@@ -1189,11 +1197,14 @@ SOURCES = [
     {
         # Integrated Reporting Framework — IFRS Foundation subdomain.
         "org": "IR Framework (IFRS Foundation)",
-        "url": "https://integratedreporting.ifrs.org/news/",
+        # integratedreporting.ifrs.org no longer answers (26-Nov-2026); search
+        # ifrs.org + press coverage instead.
+        "url": "https://www.ifrs.org/issued-standards/ir-framework/",
         "rss": None,
+        "no_html": True,
         "rss_gnews": (
             "https://news.google.com/rss/search"
-            "?q=site:integratedreporting.ifrs.org+OR+%22Integrated+Reporting+Framework%22"
+            "?q=%22Integrated+Reporting+Framework%22+OR+%22integrated+reporting%22+IFRS"
             "&hl=en-US&gl=US&ceid=US:en"
         ),
         "keywords": REALTIME_KEYWORDS,
