@@ -1,6 +1,7 @@
 import os
 import re
 import ssl
+import html
 import json
 import time
 import socket
@@ -47,11 +48,16 @@ HISTORY_PATH = "Historical_Matches.csv"
 RUN_NOW_UTC = datetime.now(timezone.utc)
 
 # Rolling history grace window: an item already in history still appears in
-# the email until this many hours have elapsed since it was FIRST seen. This
-# means fresh items keep showing across multiple runs on the same day, and
-# only drop out once they are genuinely a day old. Items first seen more than
-# this long ago are suppressed as duplicates.
-HISTORY_GRACE_HOURS = 24
+# the email until this many hours have elapsed since it was FIRST seen, so a
+# same-day manual re-run still shows the day's items. Items first seen more
+# than this long ago are suppressed as duplicates.
+#
+# Was 24h. The scheduled run drifts by hours (GitHub queues the 03:30 UTC cron;
+# actual starts ranged 10:42–14:00 UTC in Nov-2026), so consecutive daily runs
+# were often <24h apart and yesterday's items re-appeared in today's email
+# (25-Nov-2026: "9 previously-seen item(s) still fresh — kept"). 12h keeps
+# same-day re-runs working while making next-day repeats impossible.
+HISTORY_GRACE_HOURS = 12
 HISTORY_GRACE_CUTOFF = RUN_NOW_UTC - timedelta(hours=HISTORY_GRACE_HOURS)
 
 # Items older than this many days are ignored (prevents stale SEBI dumps on first run)
@@ -67,6 +73,11 @@ NEWS_CUTOFF = datetime.now(timezone.utc) - timedelta(hours=72)
 # flooding the digest and guarantees diversity across tracked sites.
 MAX_PER_SOURCE = 3
 
+# Max ESG News items sharing one keyword chip — the per-source cap alone let
+# one story dominate across outlets (25-Nov-2026: 9 COP31 pieces from 7
+# sources). The most relevant items per chip are kept.
+MAX_PER_KEYWORD = 2
+
 # ── AI relevance gate (semantic QC layer on top of keyword gating) ───────────
 # After the Gemini call, ESG News items with a model relevance score below
 # AI_RELEVANCE_MIN are dropped from the digest. Regulatory and Tenders items
@@ -74,11 +85,14 @@ MAX_PER_SOURCE = 3
 # AI_RELEVANCE_GATE=0; tune the threshold with AI_RELEVANCE_MIN (0-10).
 #
 # Threshold lowered 4 → 2 (23-Jun-2026): at 4 the gate was deleting roughly
-# half the digest (18 → 9 items) while the recurring complaint is too FEW
-# items. At 2 the genuine junk (career listicles, layoff/share-price PR) still
-# falls below the bar, but event coverage and India forums survive.
+# half the digest (18 → 9 items) while the recurring complaint was too FEW
+# items. Raised back 2 → 4 (26-Nov-2026): the complaint is now quality —
+# 0-3 is the prompt's own band for opinion pieces, event coverage and
+# single-company PR, which is what filled the digest (9 of 23 items on
+# 25-Nov were COP31 commentary). India/regulatory items are still protected
+# by DETERMINISTIC_BYPASS_MIN, and Tenders/Regulatory are never filtered.
 AI_RELEVANCE_GATE = os.environ.get("AI_RELEVANCE_GATE", "1") != "0"
-AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "2"))
+AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "4"))
 
 # Event/topic sources are NEVER filtered by the AI gate (like Tenders and
 # Regulatory). These feeds exist specifically to track flagship events such as
@@ -236,12 +250,72 @@ def is_esg_tender(text: str) -> str | None:
     return None
 
 
+# ── Tracks C & D (added 26-Nov-2026) ─────────────────────────────────────────
+# Requested scope widened to renewable / clean-energy projects and
+# environmental clearances & studies. Between 25-Aug and 26-Oct-2026 the A+B
+# gate admitted 0 of ~4,000 rows/day, so the Tenders section was always empty.
+# Same pattern as track B: a STRONG term alone never admits — it needs a
+# project/engagement signal, so rooftop-panel supply, "carbon brush" spares
+# and "greenfield highway" road works stay out (all seen on live data).
+TENDER_ENERGY_STRONG = [
+    "Solar Power Project", "Solar Power Plant", "Solar PV", "Solar Energy Project",
+    "Floating Solar", "Solar Park", "Wind Energy Project", "Wind Power Project",
+    "Wind Farm", "Hybrid Renewable", "Renewable Energy Project",
+    "Battery Energy Storage", "BESS", "Pumped Storage", "Green Hydrogen",
+    "Green Ammonia", "Electrolyser", "Electrolyzer", "Waste to Energy",
+    "Compressed Biogas", "Bio-CNG",
+]
+# Utility-scale capacity ("300 MW", "60 MWh"), a project-delivery model, or a
+# project-level solicitation. Deliberately NOT TENDER_ENGAGEMENT_KEYWORDS: its
+# "Panel" admitted "civil works for the solar panel room" (live, 26-Nov-2026).
+_ENERGY_PROJECT_RE = re.compile(
+    r"\b\d+(\.\d+)?\s*(MW|MWh|MWp|GW|GWh)\b|\b(EPC|RfS|BOO|BOOT|DBFOT|BOT|"
+    r"Developer|Developers|Land Aggregation|Power Purchase|RFP|"
+    r"Request for Proposal|EOI|Expression of Interest|Consultancy|Consultant)\b",
+    re.IGNORECASE,
+)
+
+TENDER_ENV_STRONG = [
+    "Environmental Impact Assessment", "Environment Impact Assessment",
+    "EIA", "EIA/EMP", "Social Impact Assessment", "Environmental Clearance",
+    "Environment Clearance", "Forest Clearance", "CRZ Clearance",
+    "Consent to Establish", "Consent to Operate", "Environmental Management Plan",
+    "Environmental Audit", "Environment Audit", "Environmental Monitoring",
+    "Environmental Compliance", "Biodiversity Assessment",
+    "Carrying Capacity Study", "Life Cycle Assessment",
+]
+# Not "Pollution Control": it is mostly the BUYER's name (State Pollution
+# Control Board) on unrelated hiring/supply tenders.
+TENDER_STUDY_EXTRA = [
+    "Preparation of", "Study", "Studies", "Survey", "Obtaining", "Monitoring Services",
+]
+
+
+def is_energy_tender(text: str) -> str | None:
+    """Track C: renewable / clean-energy project with a project-scale or
+    delivery-model signal (capacity in MW/MWh, EPC, RfS, developer, RFP …)."""
+    term = first_keyword_match(text, TENDER_ENERGY_STRONG)
+    if term and _ENERGY_PROJECT_RE.search(text):
+        return term
+    return None
+
+
+def is_env_tender(text: str) -> str | None:
+    """Track D: environmental clearance / impact study with an engagement or
+    study signal (consultancy, EOI, preparation of, study …)."""
+    term = first_keyword_match(text, TENDER_ENV_STRONG)
+    if term and first_keyword_match(text, TENDER_ENGAGEMENT_KEYWORDS + TENDER_STUDY_EXTRA):
+        return term
+    return None
+
+
 def is_tender_relevant(text: str) -> str | None:
     """
-    Combined admission gate: legal-nature (track A) OR ESG-topic (track B).
-    Returns the matched admitting term, or None.
+    Combined admission gate: legal-nature (A), ESG advisory (B), clean-energy
+    project (C) or environmental study (D). Returns the admitting term, or None.
     """
-    return is_legal_tender(text) or is_esg_tender(text)
+    return (is_legal_tender(text) or is_esg_tender(text)
+            or is_energy_tender(text) or is_env_tender(text))
 
 # ── Tender legal-nature gate (MANDATORY — legal tenders only) ─────────────────
 # Two-tier matching, spec'd 09-Jul-2026 after live false positives:
@@ -429,7 +503,8 @@ TENDER_EXCLUDE_KEYWORDS = [
 # parsers and printed in the run summary, so a "0 tender match(es)" day is
 # distinguishable between genuine scarcity and an over-tight gate.
 TENDER_GATE_STATS = {"rows": 0, "excluded": 0, "no_gate": 0,
-                     "passed_legal": 0, "passed_topic": 0}
+                     "passed_legal": 0, "passed_topic": 0,
+                     "passed_energy": 0, "passed_env": 0}
 
 
 def tender_keyword_match(text: str, keywords: list) -> str | None:
@@ -437,30 +512,39 @@ def tender_keyword_match(text: str, keywords: list) -> str | None:
     Tender-specific keyword matcher. A row qualifies only when BOTH hold:
       1. No TENDER_EXCLUDE_KEYWORDS term is present (pipes, stationery,
          Legal Metrology equipment, streetlight/road works etc. vetoed).
-      2. It passes EITHER admission track (is_tender_relevant):
+      2. It passes ANY admission track (is_tender_relevant):
          A. legal-nature gate — a STRONG legal-engagement phrase, or a WEAK
             legal term co-occurring with an engagement/procurement signal
             (admits legal empanelment EOIs, rejects rows where "Advocate" /
-            "Legal Services" is a street descriptor or a buyer's name); OR
+            "Legal Services" is a street descriptor or a buyer's name);
          B. ESG-topic gate — a STRONG ESG term (TENDER_TOPIC_STRONG)
             co-occurring with an engagement signal (admits BRSR / carbon
             accounting / ESG consultancy EOIs, rejects goods/works rows
-            that merely name-drop an ESG word).
+            that merely name-drop an ESG word);
+         C. clean-energy project gate (is_energy_tender); or
+         D. environmental clearance / study gate (is_env_tender).
     Returns the keyword chip: the matched topic keyword when present,
-    otherwise the term that admitted the row — so both legal and ESG
-    tenders surface, chipped by whichever signal is most specific.
+    otherwise the term that admitted the row — chipped by whichever signal
+    is most specific.
     """
     TENDER_GATE_STATS["rows"] += 1
     if first_keyword_match(text, TENDER_EXCLUDE_KEYWORDS):
         TENDER_GATE_STATS["excluded"] += 1
         return None
-    legal_kw = is_legal_tender(text)
-    topic_kw = None if legal_kw else is_esg_tender(text)
-    if not legal_kw and not topic_kw:
-        TENDER_GATE_STATS["no_gate"] += 1
-        return None
-    TENDER_GATE_STATS["passed_legal" if legal_kw else "passed_topic"] += 1
-    return first_keyword_match(text, keywords) or legal_kw or topic_kw
+    for stat, check in (("passed_legal", is_legal_tender),
+                        ("passed_topic", is_esg_tender),
+                        ("passed_energy", is_energy_tender),
+                        ("passed_env", is_env_tender)):
+        admitted = check(text)
+        if admitted:
+            TENDER_GATE_STATS[stat] += 1
+            # C/D terms are already specific; the generic chip list would
+            # relabel an EIA tender "Assessment" or a solar park "Sustainab".
+            if stat in ("passed_energy", "passed_env"):
+                return admitted
+            return first_keyword_match(text, keywords) or admitted
+    TENDER_GATE_STATS["no_gate"] += 1
+    return None
 
 
 SEBI_KEYWORDS = [
@@ -487,36 +571,27 @@ PIB_INDIA_KEYWORDS = [
 # Each source: org name, homepage URL, RSS feed URL (or None), keywords, category, parser type
 SOURCES = [
     # ── Tenders ──────────────────────────────────────────────────────────────
-    {
-        # GeM bids via the captcha-free CPPP Drupal gemdata listing. This was
-        # previously the FALLBACK of a bidplus.gem.gov.in Playwright scraper,
-        # but gem.gov.in and bidplus.gem.gov.in refuse connections from the
-        # runner IP on every run (ERR_CONNECTION_REFUSED, verified 08/09-Jul-
-        # 2026), so the direct route is now the only route. parse_gem_bidplus
-        # is kept in the codebase unregistered in case a future runner IP can
-        # reach GeM again.
-        "org": "GeM Bids (CPPP)",
-        "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/gemdata",
-        "rss": None,
-        "keywords": TENDER_KEYWORDS,
-        "category": "Tenders",
-        "parser": "cppp",
-    },
+    # GeM-CPPP active-tender lists (see _cppp_route_rows). The former
+    # "GeM Bids (CPPP)" source is dropped: the GeM grid has no item titles,
+    # so the keyword gate could never admit a row. parse_gem_bidplus stays in
+    # the codebase unregistered in case GeM ever becomes reachable again.
     {
         "org": "CPPP Active Tenders – Central",
-        "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/cpppdata",
+        "url": "https://eprocure.gov.in/cppp/#/activeTenders",
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
-        "parser": "cppp",
+        "parser": "cppp_spa",
+        "routes": ("central",),
     },
     {
         "org": "CPPP Active Tenders – State",
-        "url": "https://eprocure.gov.in/cppp/latestactivetendersnew/mmpdata",
+        "url": "https://eprocure.gov.in/cppp/#/activeTenders",
         "rss": None,
         "keywords": TENDER_KEYWORDS,
         "category": "Tenders",
-        "parser": "cppp",
+        "parser": "cppp_spa",
+        "routes": ("state",),
     },
     # ── ESG News — one entry per tracked source ───────────────────────────────
     # Primary: each site's own RSS feed.
@@ -1580,8 +1655,13 @@ NOISE_TITLE_RE = re.compile(
     r"named\s+(to|among|one\s+of)\b|"             # "Named to Fortune list"
     r"anniversar(y|ies)|celebrates?\b|honou?red\b|"
     r"webinar|register\s+now|join\s+us\b|"
+    r"taps\s.{0,60}\b(chief|head|officer|director|cso|ceo|cfo)\b|"
+    # ── non-article pages (careers listings, videos, readers' letters) ───────
+    r"^careers?\b|^watch\s*:|^video\s*:|(?:(?<=\|)|(?<=\|\s))letters?\s*$|"
     # ── promo / engagement formats with no compliance substance ──────────────
     r"podcast|webcast|fireside\s+chat|live\s*stream|"
+    # ── opinion / commentary (no new facts; 25-Nov-2026 digest carried 5) ─────
+    r"^(opinion|commentary|editorial|column|view(point)?)\s*[:|\-]|op-?ed\b|"
     r"\bq\s*&\s*a\b|in\s+conversation\s+with|interview\s+with|"
     r"sponsored|partner(ed)?\s+content|press\s+release\s+round-?up|"
     r"download\s+(our|the)\s+(report|whitepaper|guide)|"
@@ -1607,6 +1687,15 @@ GENERIC_KEYWORDS = frozenset(k.lower() for k in [
     "Climate Action", "Renewable Energy", "Assurance", "Assessment",
     "Biodiversity", "Biomass", "Deforestation", "Greenhouse Gas",
     "Greenhouse Gases", "GHG", "COP",
+    # Added 26-Nov-2026 — each admitted off-topic items ON ITS OWN on
+    # 25-Nov (a Xiaomi car launch via "EV", COP31 op-eds via "COP31" /
+    # "Climate Conference", corporate PR via "Energy Transition"). They now
+    # need a second distinct keyword with one in the headline.
+    "COP31", "Pre-COP", "EV", "Electric Vehicle", "Ammonia", "Battery Storage",
+    "Wind Energy", "Energy Transition", "Clean Energy Transition",
+    "Climate Conference", "Global Sustainability", "Sustainability Event",
+    "Methane", "Wildlife", "Wetlands", "Groundwater", "Watershed", "Biofuel",
+    "Clean Tech", "Climate Tech", "Global Warming",
 ])
 
 
@@ -1636,6 +1725,10 @@ def news_keyword_gate(title: str, body_text: str, keywords: list) -> str | None:
          mentions of "sustainability" and "ESG" buried in boilerplate body
          text is no longer evidence of relevance — the headline has to be
          about the topic.
+      4. Exception: ONE generic match in the title suffices when the title
+         also carries an explicit India hook (INDIA_RELEVANCE_RE) — India
+         energy/climate stories ("ACME's green ammonia project to boost
+         India's chemical sector") are core coverage for this digest.
     """
     if NOISE_TITLE_RE.search(title or ""):
         return None
@@ -1645,9 +1738,10 @@ def news_keyword_gate(title: str, body_text: str, keywords: list) -> str | None:
     specific = [m for m in matches if m.lower() not in GENERIC_KEYWORDS]
     if specific:
         return specific[0]          # longest-first ordering preserved
-    if (
+    title_matches = all_keyword_matches(title or "", keywords)
+    if title_matches and (
         len(set(m.lower() for m in matches)) >= 2
-        and all_keyword_matches(title or "", keywords)
+        or INDIA_RELEVANCE_RE.search(title or "")
     ):
         return matches[0]
     return None
@@ -2841,7 +2935,11 @@ def parse_egazette(source: dict) -> list:
             if not gz_id or gz_id in seen:
                 continue
             gate_text = f"{row['subject']} {row['ministry']}"
-            kw = first_keyword_match(gate_text, keywords)
+            # Bare "Assessment"/"Assurance" are tax/audit false friends here
+            # ("Tolerance Range for assessment year 2026-27", MoF, 25-Nov-2026)
+            # and Regulatory items skip the AI gate — they can't admit alone.
+            kw = next((m for m in all_keyword_matches(gate_text, keywords)
+                       if m.lower() not in ("assessment", "assurance")), None)
             if not kw:
                 continue
             seen.add(gz_id)
@@ -2950,114 +3048,120 @@ def _extract_deadline(row_text: str, now: datetime):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CPPP DRUPAL LISTING ROUTES  (verified captcha-free, server-side paginated)
+# GeM-CPPP ACTIVE-TENDER LISTS  (Vue SPA, rebuilt Oct-2026)
 # ─────────────────────────────────────────────────────────────────────────────
-# eprocure.gov.in/cppp is a Drupal app with public paginated listings:
-#   cpppdata → Central active tenders, mmpdata → State, gemdata → GeM bids.
-# Each route accepts ?page=N. Rows are fetched once per run and cached;
-# a Playwright render of page 0 is attempted if the static table is empty.
+# ~27-Oct-2026 eprocure.gov.in/cppp was rebuilt as the "GeM-CPPP" Vue app and
+# every old Drupal listing route (latestactivetendersnew/cpppdata, mmpdata,
+# gemdata) now returns HTTP 404 — tenders were silently 0 on every run since.
+#
+# The new #/activeTenders page loads the FULL active list on mount with no
+# captcha (the captcha only gates its keyword-search form, which we never
+# use). Its API traffic is encrypted with a per-session token, so rather than
+# re-implementing that client-side crypto we open the page in Playwright and
+# call the app's OWN API client ($api.preLoginPost) with the exact default
+# payload the page itself sends on load. Verified 26-Nov-2026: Central 1,221
+# rows, State 310 rows, each with title, description, ref no and dates.
+#
+# GeM bids are NOT fetched: the GeM grid carries no item title/description
+# (only bid number, buyer and department), so no keyword gate can ever match.
 
-CPPP_LISTING_BASE = "https://www.eprocure.gov.in/cppp/latestactivetendersnew/"
-# CPPP_MAX_PAGES was 40, but live runs on 08/09-Jul-2026 hit exactly 40 pages
-# on BOTH cpppdata and mmpdata — the ceiling truncated the scan while rows were
-# still inside the freshness window (Central publishes thousands of tenders a
-# day; 400 rows is a few hours of postings). Cross-checked 09-Jul-2026: legal
-# tenders with live deadlines existed that the truncated slice never reached.
-# 200 pages ≈ 2,000 rows/route; the date cutoff should terminate first on most
-# days. Env-tunable (CPPP_MAX_PAGES=400 python scraper.py) without a code edit.
-CPPP_MAX_PAGES = int(os.environ.get("CPPP_MAX_PAGES", "200"))
-CPPP_FRESH_DAYS = int(os.environ.get("CPPP_FRESH_DAYS", "3"))
-CPPP_FETCH_TIMEOUT = 75        # listing pages (esp. gemdata) are slow to render
-CPPP_JS_TIMEOUT_MS = 60_000
-_CPPP_ROUTE_ROWS: dict[str, list] = {}  # route → [(row_text, title, href), …]
+CPPP_SPA_URL = "https://eprocure.gov.in/cppp/#/activeTenders"
+CPPP_SPA_TIMEOUT_MS = 90_000
+_CPPP_ROUTE_ROWS: dict[str, list] = {}  # route → [(row_text, title, href, reference), …]
+
+# route → (global-property name of the endpoint, default on-load payload)
+_CPPP_SPA_ROUTES = {
+    "central": ("$getCpppCentralTenderGried",
+                {"organisationName": None, "productCategory": None,
+                 "sortName": None, "keyword": None}),
+    "state":   ("$getSpppStateTenderGried",
+                {"productCategory": None, "sortName": None, "keyword": None,
+                 "secondLevelname": None, "thirdLevelname": None}),
+}
 
 
-def _cppp_data_rows(soup: BeautifulSoup) -> list[tuple]:
+def _cppp_spa_fetch_all() -> dict[str, list]:
+    """One browser session → {route: [raw JSON row, …]} for every route."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("    ⚠  playwright not installed — cannot load GeM-CPPP")
+        return {}
+    calls = {r: [ep, body] for r, (ep, body) in _CPPP_SPA_ROUTES.items()}
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=SESSION.headers.get("User-Agent", ""))
+            page.goto(CPPP_SPA_URL, wait_until="domcontentloaded",
+                      timeout=CPPP_SPA_TIMEOUT_MS)
+            # The grid renders once the app's default list call has resolved,
+            # which also means its session token is established.
+            page.wait_for_selector("table tbody tr", timeout=CPPP_SPA_TIMEOUT_MS)
+            data = page.evaluate(
+                """async (calls) => {
+                    const g = document.querySelector('#app').__vue_app__
+                                      .config.globalProperties;
+                    const out = {};
+                    for (const [route, [ep, body]] of Object.entries(calls)) {
+                        try {
+                            const r = await g.$api.preLoginPost(g[ep], body);
+                            out[route] = Array.isArray(r.data) ? r.data : [];
+                        } catch (e) { out[route] = []; }
+                    }
+                    return out;
+                }""",
+                calls,
+            )
+            browser.close()
+        return data or {}
+    except Exception as e:
+        msg = str(e).splitlines()[0][:140] if str(e) else type(e).__name__
+        print(f"    ⚠  GeM-CPPP load failed: {msg}")
+        return {}
+
+
+def _cppp_spa_row(rec: dict) -> tuple:
     """
-    Extract tender data rows from a CPPP listing page, excluding navigation
-    chrome: a data row has a detail link AND at least one date in its text
-    (published / closing / opening dates are always present on data rows).
+    Convert one JSON record to the (row_text, title, href, reference) tuple
+    the tender pipeline expects. row_text keeps the old listing column order —
+    Published, Closing, Opening, Title, Ref, Org — so _extract_deadline still
+    reads the SECOND date as the bid-closing deadline.
     """
-    rows = []
-    for tr in soup.find_all("tr"):
-        text = tr.get_text(separator=" ", strip=True)
-        if len(text) < 20:
-            continue
-        a = tr.find("a", href=True)
-        if not a:
-            continue
-        if not _TENDER_DATE_RE.search(text):
-            continue
-        title = a.get_text(strip=True)
-        rows.append((text, title, a["href"]))
-    return rows
-
-
-def _row_published_dt(row_text: str):
-    """First date in a listing row = the e-Published Date column (column order
-    on CPPP listings: S.No, e-Published, Closing, Opening, Title, Org)."""
-    m = _TENDER_DATE_RE.search(row_text)
-    return parse_fuzzy_date(m.group(1)) if m else None
+    # Titles arrive with HTML entities ("&#37;") and hard line breaks.
+    title = re.sub(r"\s+", " ", html.unescape(rec.get("tenderTitle") or "")).strip()
+    org = rec.get("organisationName") or rec.get("thirdLevelname") or ""
+    state = rec.get("secondLevelname") or ""
+    row_text = " ".join(str(x) for x in (
+        rec.get("publishedDate") or "", rec.get("bidSubmissionEnddate") or "",
+        rec.get("bidOpeningDate") or "", title, rec.get("tenderDesc") or "",
+        rec.get("tenderRefno") or "", rec.get("tenderId") or "",
+        org, state, rec.get("productCategory") or "",
+    ) if x)
+    # Detail views are session-bound (no deep links); the tender ID is shown
+    # in the snippet and searchable on the listing page. The query string
+    # only makes each href unique for dedup.
+    href = f"{CPPP_SPA_URL}?tenderId={rec.get('tenderId') or rec.get('id')}"
+    # The JSON gives the real reference; _extract_reference's slash-token
+    # guess picked the product category ("Projects/Products/Services").
+    reference = " · ".join(x for x in (
+        (rec.get("tenderRefno") or "").strip(),
+        f"Tender ID {rec['tenderId']}" if rec.get("tenderId") else "",
+    ) if x)
+    return row_text, title, href, reference
 
 
 def _cppp_route_rows(route: str) -> list[tuple]:
-    """
-    All data rows for a listing route, paginating BY DATE rather than a fixed
-    page count: listings are sorted newest-first, so we keep fetching pages
-    until every parseable published date on a page is older than
-    CPPP_FRESH_DAYS (i.e. we've covered everything new since recent runs),
-    with CPPP_MAX_PAGES as a hard safety ceiling. Memoised per run.
-    """
-    if route in _CPPP_ROUTE_ROWS:
-        return _CPPP_ROUTE_ROWS[route]
-
-    fresh_cutoff = datetime.now(timezone.utc) - timedelta(days=CPPP_FRESH_DAYS)
-    all_rows: list[tuple] = []
-    rows: list[tuple] = []
-    pages_fetched = 0
-
-    for page in range(CPPP_MAX_PAGES):
-        url = f"{CPPP_LISTING_BASE}{route}" + (f"?page={page}" if page else "")
-        soup = fetch_soup(url, timeout=CPPP_FETCH_TIMEOUT)
-        rows = _cppp_data_rows(soup) if soup else []
-        # First page empty on static fetch → try a JS render once before
-        # concluding the route is empty (table may be late-hydrated).
-        if not rows and page == 0:
-            js_soup = fetch_soup_js(url, wait_selector="table tbody tr",
-                                    timeout_ms=CPPP_JS_TIMEOUT_MS)
-            rows = _cppp_data_rows(js_soup) if js_soup else []
-            if rows:
-                print(f"    ✓ CPPP {route}: JS render required")
-        if not rows:
-            break                        # unreachable, or past the last page
-        pages_fetched = page + 1
-        all_rows.extend(rows)
-
-        # Date cutoff: stop once the whole page is older than the freshness
-        # window. Pages with no parseable dates don't stop the scan.
-        page_dts = [d for d in (_row_published_dt(t) for t, _, _ in rows) if d]
-        if page_dts and max(page_dts) < fresh_cutoff:
-            break
-
-    # Distinguish "window exhausted" from "ceiling hit": if we consumed every
-    # allowed page and the newest dates on the LAST page are still inside the
-    # freshness window, the scan is truncated and coverage is partial.
-    truncated = False
-    if pages_fetched == CPPP_MAX_PAGES and all_rows:
-        last_page_rows = all_rows[-len(rows):] if rows else []
-        last_dts = [d for d in (_row_published_dt(t) for t, _, _ in last_page_rows) if d]
-        truncated = bool(last_dts) and max(last_dts) >= fresh_cutoff
-    if all_rows:
-        print(f"    ✓ CPPP {route}: {len(all_rows)} tender row(s) across "
-              f"{pages_fetched} page(s) (last {CPPP_FRESH_DAYS} days)")
-        if truncated:
-            print(f"    ⚠  CPPP {route}: scan TRUNCATED at {CPPP_MAX_PAGES}-page "
-                  f"ceiling with rows still inside the {CPPP_FRESH_DAYS}-day window "
-                  f"— raise CPPP_MAX_PAGES to widen coverage")
-    else:
-        print(f"    ⚠  CPPP {route}: no tender rows retrieved")
-    _CPPP_ROUTE_ROWS[route] = all_rows
-    return all_rows
+    """All active-tender rows for a route ('central' / 'state'). Memoised:
+    the first call loads every route in a single browser session."""
+    if route not in _CPPP_ROUTE_ROWS:
+        raw = _cppp_spa_fetch_all()
+        for r in _CPPP_SPA_ROUTES:
+            _CPPP_ROUTE_ROWS[r] = [_cppp_spa_row(rec) for rec in raw.get(r, [])]
+            if _CPPP_ROUTE_ROWS[r]:
+                print(f"    ✓ GeM-CPPP {r}: {len(_CPPP_ROUTE_ROWS[r])} active tender(s)")
+            else:
+                print(f"    ⚠  GeM-CPPP {r}: no tender rows retrieved")
+    return _CPPP_ROUTE_ROWS.get(route, [])
 
 
 # ── AI tender triage (semantic layer over the CPPP listing scan) ─────────────
@@ -3190,7 +3294,7 @@ def _cppp_ai_flags(route: str, now: datetime) -> dict[int, str]:
     flags: dict[int, str] = {}
     rows = _CPPP_ROUTE_ROWS.get(route, [])
     candidates = []                            # (row_idx, title)
-    for idx, (row_text, title, _href) in enumerate(rows):
+    for idx, (row_text, title, _href, _ref) in enumerate(rows):
         if len(title) < 5:
             continue
         deadline_dt, _ = _extract_deadline(row_text, now)
@@ -3217,28 +3321,20 @@ def _cppp_ai_flags(route: str, now: datetime) -> dict[int, str]:
 
 
 def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
-                           routes: tuple = ("cpppdata", "mmpdata")) -> list[dict]:
+                           routes: tuple = ("central", "state")) -> list[dict]:
     """
-    Tender fallback — scans the CPPP Drupal listing routes.
+    Scans the GeM-CPPP active-tender lists (see _cppp_route_rows).
 
     HISTORY: this used to query the eprocure JSP keyword search
-    (FrontEndLatestActiveTenders&searchString=…). That page now requires a
-    CAPTCHA before listing any tenders (verified 12-Jun-2026: "Provide Captcha
-    and click on Search button to list all active tenders"), so the
-    searchString GET parameter returns only page chrome — every row scanned
-    was navigation markup. CAPTCHAs are not bypassed; the route is dead for
-    automation.
+    (FrontEndLatestActiveTenders&searchString=…), which became captcha-gated
+    on 12-Jun-2026, and then the CPPP Drupal listing routes
+    (latestactivetendersnew/cpppdata|mmpdata|gemdata), which 404 since the
+    Oct-2026 GeM-CPPP rebuild. CAPTCHAs are not bypassed: the current source
+    is the full list the page loads on open, before any search.
 
-    REPLACEMENT (verified live and captcha-free): the GeM-CPPP Drupal app at
-    eprocure.gov.in/cppp serves server-side paginated listings:
-      • /cppp/latestactivetendersnew/cpppdata?page=N  — Central active tenders
-      • /cppp/latestactivetendersnew/mmpdata?page=N   — State active tenders
-      • /cppp/latestactivetendersnew/gemdata?page=N   — GeM active bids
-        (this also replaces the IP-blocked bidplus.gem.gov.in for GeM bids)
-    We fetch the first CPPP_MAX_PAGES of each requested route, keyword-filter
-    locally against TENDER_KEYWORDS, and keep rows whose nearest date is in
-    the future (active). Pages are cached per run so the three tender sources
-    sharing a route don't re-fetch it.
+    Every row is keyword-filtered locally against TENDER_KEYWORDS and kept
+    only while its bid-closing date is in the future (active). Rows are
+    cached per run so the sources sharing a route don't re-fetch it.
     """
     hits = []
     for route in routes:
@@ -3246,9 +3342,7 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
         # Semantic triage layer: rows Gemini flags as ESG-relevant are kept
         # even without an exact keyword match. {} when disabled or on failure.
         ai_flags = _cppp_ai_flags(route, now) if (AI_TENDER_TRIAGE and rows) else {}
-        for row_idx, (row_text, title, href) in enumerate(rows):
-            if not href.startswith("http"):
-                href = urljoin(CPPP_LISTING_BASE, href)
+        for row_idx, (row_text, title, href, reference) in enumerate(rows):
             if href in seen or len(title) < 5:
                 continue
             kw_match = tender_keyword_match(f"{title} {row_text}", keywords)
@@ -3268,7 +3362,7 @@ def _eprocure_keyword_hits(org: str, keywords: list, seen: set, now: datetime,
             # 09-Jul-2026. Key on (reference, normalised title) instead, and
             # derive the uid from the same key so history-level dedup also
             # survives day-to-day href churn.
-            reference = _extract_reference(row_text)
+            reference = reference or _extract_reference(row_text)
             tender_key = f"{reference}|{title[:120].lower().strip()}"
             if tender_key in seen:
                 continue
@@ -3437,24 +3531,26 @@ def parse_cppp(source: dict) -> list[dict]:
             print(f"    ✓ JS-rendered HTML: {len(hits)} active tender(s)")
             return hits
 
-    # ── Step 2: CPPP Drupal listing fallback ─────────────────────────────────
-    # Route by what this source covers: state pages scan mmpdata, GeM pages
-    # scan gemdata, everything else scans the Central cpppdata listing (the
-    # old JSP keyword search is permanently captcha-gated — see
-    # _eprocure_keyword_hits docstring).
-    if "mmpdata" in base_url:
-        routes = ("mmpdata",)
-    elif "gemdata" in base_url:
-        routes = ("gemdata",)
-    else:
-        routes = ("cpppdata",)
+    # ── Step 2: GeM-CPPP active-tender list fallback ────────────────────────
+    routes = ("state",) if "state" in org.lower() else ("central",)
     print(f"    ⚠  direct + rendered HTML returned 0 rows — "
-          f"scanning CPPP listing route(s) {routes}")
+          f"scanning GeM-CPPP list(s) {routes}")
     fallback = _eprocure_keyword_hits(org, keywords, seen, now, routes=routes)
     if fallback:
-        print(f"    ✓ CPPP listing scan: {len(fallback)} matching active tender(s)")
+        print(f"    ✓ GeM-CPPP scan: {len(fallback)} matching active tender(s)")
     hits.extend(fallback)
     return hits
+
+
+def parse_cppp_spa(source: dict) -> list[dict]:
+    """
+    GeM-CPPP tender parser: keyword-gates the active-tender list(s) named in
+    source["routes"] ('central' / 'state'). See _cppp_route_rows.
+    """
+    return _eprocure_keyword_hits(
+        source["org"], source["keywords"], set(),
+        datetime.now(timezone.utc), routes=source["routes"],
+    )
 
 
 def parse_gem_bidplus(source: dict) -> list[dict]:
@@ -3691,6 +3787,7 @@ PARSER_MAP = {
     "egazette": parse_egazette,
     "gem": parse_gem,
     "cppp": parse_cppp,
+    "cppp_spa": parse_cppp_spa,
     "gem_bidplus": parse_gem_bidplus,
 }
 
@@ -3718,6 +3815,7 @@ if TENDER_GATE_STATS["rows"]:
     _s = TENDER_GATE_STATS
     print(f"  Tender gate: {_s['rows']} row(s) evaluated → "
           f"{_s['passed_legal']} legal | {_s['passed_topic']} ESG-topic | "
+          f"{_s['passed_energy']} clean-energy | {_s['passed_env']} environmental | "
           f"{_s['no_gate']} no-gate | {_s['excluded']} excluded")
 
 # ==========================================
@@ -3900,6 +3998,19 @@ if not df_new.empty:
     pd.concat([df_history, new_hist]).drop_duplicates(
         subset="uid", keep="first"
     ).to_csv(HISTORY_PATH, index=False)
+
+    # Per-keyword cap (ESG News only; regulatory items exempt): keep the
+    # MAX_PER_KEYWORD most relevant items per chip so one story can't flood
+    # the digest. Applied AFTER history is written so capped items are
+    # recorded as seen and don't trickle into tomorrow's email, and after the
+    # relevance sort so the best-ranked copies survive.
+    _capped = (df_new["category"] == "ESG News") & ~df_new["_was_regulatory"]
+    _rank = df_new[_capped].groupby(df_new["keyword"].astype(str).str.lower()).cumcount()
+    _over = _rank[_rank >= MAX_PER_KEYWORD].index
+    if len(_over):
+        print(f"  Per-keyword cap ({MAX_PER_KEYWORD}): dropped {len(_over)} item(s) — "
+              + ", ".join(sorted(set(df_new.loc[_over, "keyword"]))))
+        df_new = df_new.drop(index=_over).reset_index(drop=True)
 
 # ==========================================
 # 7.5  AI DIGEST SUMMARY  (Gemini REST API via requests)
