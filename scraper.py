@@ -39,7 +39,7 @@ except ImportError:
 
 POWER_AUTOMATE_URL = "https://defaultfd7143fa1107460d98b18ef251b16d.50.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/83c582d1339848bf82bb44367f463879/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=G0QNUbenz6wjlJLNkAW0j0b34BMc6aB7i58Lfmy-8Jg"
 
-TODAY_STR = datetime.now().strftime("%d %B %Y")
+TODAY_STR = datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime("%d %B %Y")
 HISTORY_PATH = "Historical_Matches.csv"
 
 # Single fixed timestamp for this entire run (UTC). Used both for stamping
@@ -92,7 +92,7 @@ MAX_PER_KEYWORD = 2
 # 25-Nov were COP31 commentary). India/regulatory items are still protected
 # by DETERMINISTIC_BYPASS_MIN, and Tenders/Regulatory are never filtered.
 AI_RELEVANCE_GATE = os.environ.get("AI_RELEVANCE_GATE", "1") != "0"
-AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "4"))
+AI_RELEVANCE_MIN = int(os.environ.get("AI_RELEVANCE_MIN", "5"))
 
 # Event/topic sources are NEVER filtered by the AI gate (like Tenders and
 # Regulatory). These feeds exist specifically to track flagship events such as
@@ -4100,70 +4100,40 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
         "[Tenders] categories still receive a score but are never filtered, so "
         "score them on the same rubric.\n\n"
         "═══ PART 1: PER-ITEM SUMMARIES ═══\n"
-        "TARGET LENGTH FOR ALL SUMMARIES: 60-70 words. This is a hard target — "
-        "do not stop at 30 words because the source is thin; use all available facts "
-        "and expand each point fully before moving to the next.\n\n"
-        "Each summary is a dense prose paragraph of 60-70 words (the FACTS), "
-        "followed by a separate INDIA IMPACT analysis of 1-2 sentences (see below).\n"
-        "FACTS paragraph — extract and fully expand every concrete fact the source provides:\n"
-        "  • For regulatory/policy items: exact instrument name, issuing authority, and "
-        "jurisdiction; the specific change in full (what the current requirement is and "
-        "precisely what is proposed or now mandated in its place); full scope — every "
-        "entity type, product class, asset class, sector, or geography explicitly "
-        "mentioned; all explicit timelines, effective dates, consultation windows, or "
-        "phase-in periods; penalties or enforcement mechanisms if stated; all figures, "
-        "thresholds, percentages, or quantitative parameters; the issuing body's stated "
-        "rationale in their own terms.\n"
-        "  • For market/industry items: what the development is, who published it, and "
-        "in what context; every concrete detail the source gives — figures, rankings, "
-        "named companies, specific findings, methodology, scope; which entities, sectors, "
-        "or markets are covered and what specifically changes, is disclosed, or is measured.\n"
-        "If the source is thin on a category, omit that category — never write "
-        "placeholder sentences. Reach the 60-70 word target by elaborating the facts "
-        "that ARE present, not by padding with generic statements. "
-        "Pure fact only in the FACTS paragraph.\n\n"
-        "═══ PART 2: INDIA IMPACT (every item where plausible) ═══\n"
-        "After the FACTS paragraph, append 1-2 sentences (wherever the development "
-        "plausibly supports it) that analyse how this development impacts ONE — and only "
-        "the single most relevant one — of the following angles:\n"
-        "  (1) Indian firms, or multinational firms doing business in India — what the "
-        "development means for their operations, disclosure, supply chains, or exposure;\n"
-        "  (2) Investors looking to deploy capital into or out of India — what it signals "
-        "for capital flows, asset allocation, due diligence, or risk pricing;\n"
-        "  (3) How the development compares competitively or on a regulatory basis to "
-        "India's current ESG landscape — e.g. how a global regulatory shift (CSRD, CBAM, "
-        "ISSB, SEC, EU taxonomy) compares to SEBI/BRSR/BRSR Core/LODR frameworks, or how "
-        "global banking/financial-sector climate commitments compare to Indian banking "
-        "and RBI actions.\n"
-        "Begin this analysis with the literal prefix 'India impact: ' so it is visually "
-        "distinct from the facts. Pick the angle the source most directly supports; do not "
-        "force all three. This analytical sentence MAY draw a reasoned comparison or "
-        "implication (this is the one place analysis is permitted), but it must remain "
-        "grounded in the facts of the item and India's known ESG framework — never invent "
-        "specific figures, dates, or events not supportable from the material. "
-        "If the development has no plausible India angle whatsoever (e.g. a purely local "
-        "US municipal matter), omit the India impact line rather than forcing one. "
-        "Keep the India impact to 1-2 sentences maximum.\n\n"
-        "═══ PART 3: DAILY BRIEF (two fields) ═══\n"
-        "Write the briefing as TWO separate fields:\n\n"
-        "FIELD 'india_glance' — 2-4 factual sentences covering ONLY what matters in "
-        "the Indian context today: (a) developments from Indian sources or about India "
-        "(SEBI, RBI, ministries, Indian companies, Indian markets), and (b) global "
-        "developments with a direct, concrete consequence for India (e.g. a CSRD scope "
-        "change affecting Indian exporters, CBAM rules affecting Indian shipments). "
-        "For (b), state the India consequence explicitly, not just the global fact. "
-        "If NOTHING in today's items has any India relevance, return an empty string "
-        "for this field — never pad it with global news.\n\n"
-        "FIELD 'global_brief' — 3-5 factual sentences covering the remaining global "
-        "regulatory and market developments NOT already covered in india_glance. "
-        "Lead with regulatory or policy developments (instrument, issuing body, "
-        "jurisdiction, scope, dates if stated); then group market/industry themes into "
-        "factual threads rather than listing each article individually. Do not repeat "
-        "items already covered in india_glance. End on a concrete fact, not a directive.\n\n"
-        "Both fields: every sentence must name a specific development, organisation, "
-        "figure, or jurisdiction from the source material. "
-        "No advice, no calls to action, no filler. Do NOT begin either field with "
-        "'Good morning' — the email template adds the greeting itself.\n\n"
+        "Each summary is 1-3 sentences, 25-55 words. Length follows the facts: a "
+        "thin source gets ONE sharp sentence, never padding. Lead with the news "
+        "itself — who did what, in which jurisdiction, with which number or date. "
+        "Do NOT restate the headline, do NOT name the publication ('The Hindu "
+        "reports...'), do NOT describe the article ('the article discusses', "
+        "'the piece argues', 'highlighted for its contributions').\n"
+        "  • Regulatory/policy: instrument, issuing authority, what changes, who "
+        "is covered, dates/thresholds if stated.\n"
+        "  • Market/industry: the concrete development, named parties, figures.\n"
+        "BANNED filler (never write these or close variants): 'this development "
+        "signifies', 'this move signals', 'underscores', 'highlights the "
+        "importance', 'reflects the ongoing', 'plays a crucial role', 'key step "
+        "towards', 'contributing to broader goals', 'amidst global challenges', "
+        "'in the broader context'. If a sentence would be true of any ESG story, "
+        "delete it.\n\n"
+        "═══ PART 2: INDIA IMPACT (only when concrete) ═══\n"
+        "Optionally append ONE sentence starting with the literal prefix "
+        "'India impact: '. Include it ONLY if you can name something specific: an "
+        "Indian regulator or instrument (SEBI, BRSR Core, LODR, RBI, CCTS, MoEFCC "
+        "notification), an Indian company or sector with direct exposure, or a "
+        "concrete comparison with India's framework. Generic lines ('could "
+        "influence Indian companies', 'may serve as a benchmark', 'aligns with "
+        "India's climate goals', 'resonates with India's emphasis') are BANNED — "
+        "omit the India impact instead. Most non-Indian items should have none.\n\n"
+        "═══ PART 3: DAILY BRIEF (two lists) ═══\n"
+        "'india_glance': 2-4 bullet strings on what matters for India today "
+        "(Indian sources/regulators/companies, or global items with a stated, "
+        "concrete India consequence). Empty list if nothing qualifies.\n"
+        "'global_brief': 3-5 bullet strings on the most important remaining "
+        "developments, regulatory first. Do not repeat india_glance items.\n"
+        "Each bullet is ONE sentence, max 30 words, and must name a specific "
+        "body, instrument, company, figure or jurisdiction. Skip opinion pieces "
+        "and event commentary unless they report a concrete outcome. No "
+        "greeting, no advice.\n\n"
         "CRITICAL RULES:\n"
         "• Every numbered item MUST receive a summary string — never null, never "
         "an empty string, never a skipped key.\n"
@@ -4172,6 +4142,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
         "permitted in the 'India impact' line is the SOLE exception, and even there you "
         "must not invent specific figures, dates, or events.\n"
         "• Write in plain declarative prose. No bullet points inside summaries.\n"
+        "• Never invent figures, dates or events not in the source.\n"
         "• ABSOLUTE BAN on directive/advisory language anywhere, including the India "
         "impact line: 'should', 'must monitor', 'recommended', 'compliance teams should', "
         "'it is advised', 'watch this space', 'teams are urged', or any equivalent "
@@ -4181,8 +4152,8 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
         "• No negative placeholder sentences for missing information.\n\n"
         "Respond ONLY with a valid JSON object — no markdown fences, no preamble:\n"
         "{\n"
-        '  "india_glance": "...",\n'
-        '  "global_brief": "...",\n'
+        '  "india_glance": ["...", "..."],\n'
+        '  "global_brief": ["...", "..."],\n'
         '  "relevance_scores": {\n'
         '    "1": 8,\n'
         '    "2": 3\n'
@@ -4219,6 +4190,7 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
                         "contents": [{"parts": [{"text": prompt}]}],
                         "generationConfig": {
                             "responseMimeType": "application/json",
+                            "temperature": 0.2,
                             # 32768 gives safe headroom for 60-70 word summaries across
                             # up to 80+ articles (≈ 6000 words of summary content).
                             # The old 8192 cap was fine for shorter 1-sentence summaries
@@ -4298,12 +4270,17 @@ def generate_ai_summaries(df_new: pd.DataFrame) -> tuple[str, str, dict, dict]:
         print("  ⚠  AI summary — all models exhausted. Skipping.")
         return "", "", {}, {}
 
-    india_glance = data.get("india_glance", "") or ""
-    global_brief = data.get("global_brief", "") or ""
+    def _as_list(v):
+        if isinstance(v, list):
+            return [str(x).strip() for x in v if str(x).strip()]
+        return [v.strip()] if isinstance(v, str) and v.strip() else []
+
+    india_glance = _as_list(data.get("india_glance"))
+    global_brief = _as_list(data.get("global_brief"))
     # Backwards compatibility: if a model returns the old single-field shape,
     # treat it as the global brief so the email still gets a Daily Brief.
     if not (india_glance or global_brief):
-        global_brief = data.get("digest_summary", "") or ""
+        global_brief = _as_list(data.get("digest_summary"))
     article_summaries = data.get("article_summaries", {})
     relevance_scores = data.get("relevance_scores", {})
 
@@ -4383,207 +4360,117 @@ CATEGORY_STYLE = {
     },
 }
 
-_FONT  = "font-family:Arial,Helvetica,sans-serif;"
+_FONT  = "font-family:'Segoe UI',Arial,Helvetica,sans-serif;"
 _SERIF = "font-family:Georgia,'Times New Roman',serif;"
+_PAD   = "padding-left:32px;padding-right:32px;"   # one gutter for the whole column
+
+
+def _row(inner: str, bg: str = _WHITE, style: str = "") -> str:
+    """One full-width Outlook-safe table row."""
+    return (
+        '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
+        f'<td bgcolor="{bg}" style="background:{bg};{style}">{inner}</td>'
+        "</tr></table>"
+    )
 
 
 def render_header(count: int) -> str:
+    # The flow holds the email until the next 06:00 IST, so date the header
+    # for the morning it lands, not the evening it was scanned.
+    ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    deliver = ist if ist.hour < 6 else ist + timedelta(days=1)
     return (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        # Gold top accent stripe
-        f'<tr><td height="5" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td></tr>'
-        # Main header
-        f'<tr><td bgcolor="{_NAVY}" style="background:{_NAVY};padding:26px 32px 22px 32px;">'
-        f'<p style="margin:0 0 7px 0;font-size:28px;font-weight:700;color:#ffffff;'
-        f'letter-spacing:0.12em;{_FONT}">'
-        "ESG DIGEST"
-        "</p>"
-        f'<p style="margin:0;font-size:13px;color:{_GOLD};letter-spacing:0.06em;'
-        f'text-transform:uppercase;{_FONT}">'
-        f"{TODAY_STR}&nbsp;&nbsp;&middot;&nbsp;&nbsp;"
-        f'{count} new item{"s" if count != 1 else ""} identified today'
-        "</p>"
-        "</td></tr></table>"
+        _row("&nbsp;", _GOLD, "height:4px;font-size:0;line-height:0;")
+        + _row(
+            f'<p style="margin:0 0 10px 0;font-size:11px;font-weight:700;color:{_GOLD};'
+            f'letter-spacing:0.18em;text-transform:uppercase;{_FONT}">Daily ESG Digest</p>'
+            f'<p style="margin:0 0 6px 0;font-size:28px;line-height:1.2;color:#ffffff;{_SERIF}">'
+            f'{deliver.strftime("%A, %d %B %Y")}</p>'
+            f'<p style="margin:0;font-size:13px;color:#aab6c9;{_FONT}">'
+            f'{count} new item{"s" if count != 1 else ""} across regulation, markets and tenders</p>',
+            _NAVY, f"padding-top:30px;padding-bottom:28px;{_PAD}",
+        )
     )
 
 
 def render_summary_bar(df: pd.DataFrame) -> str:
-    cells = [
-        f'<td style="padding:0 12px 0 0;">'
-        f'<span style="font-size:11px;color:{_MUTED};letter-spacing:0.07em;'
-        f'text-transform:uppercase;{_FONT}">Today</span></td>'
-    ]
-    for cat, cfg in CATEGORY_STYLE.items():
+    parts = []
+    for cat in CATEGORY_STYLE:
         if cat == "Regulatory":
-            continue  # folded into ESG News; no standalone pill
+            continue  # folded into ESG News
         n = len(df[df["category"] == cat])
-        if n:
-            pill_bg, pill_fg, pill_w = _GOLD, _NAVY, "font-weight:700;"
-        else:
-            pill_bg, pill_fg, pill_w = "#c5cdd9", "#6b7a8d", ""
-        cells.append(
-            f'<td style="padding:0 10px 0 0;">'
-            f'<span style="background:{pill_bg};color:{pill_fg};font-size:12px;'
-            f'{pill_w}padding:4px 14px;display:inline-block;{_FONT}">'
-            f'{n}&nbsp;{cat}'
-            "</span></td>"
+        parts.append(
+            f'<strong style="color:{_NAVY};">{n}</strong>&nbsp;{cat}'
         )
-    return (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        f'<tr><td bgcolor="{_WHITE}" style="background:{_WHITE};padding:11px 28px;'
-        f'border-bottom:2px solid {_GOLD};">'
-        f'<table cellspacing="0" cellpadding="0" border="0"><tr>{"".join(cells)}</tr></table>'
-        "</td></tr></table>"
+    return _row(
+        f'<p style="margin:0;font-size:12px;color:{_MUTED};letter-spacing:0.04em;{_FONT}">'
+        + "&nbsp;&nbsp;&middot;&nbsp;&nbsp;".join(parts) + "</p>",
+        _WHITE, f"padding-top:14px;padding-bottom:14px;border-bottom:1px solid {_DIVIDER};{_PAD}",
     )
 
 
 def _split_india_impact(summary: str) -> tuple[str, str]:
-    """
-    Split an AI summary into (facts, india_impact).
-
-    The prompt instructs Gemini to prefix the analysis with 'India impact:'.
-    We locate that marker case-insensitively (tolerating an optional leading
-    space/newline and variants like 'India Impact -'), return the text before it
-    as the facts paragraph and the text after the colon as the analysis line.
-    If no marker is found, the whole string is treated as facts and the second
-    element is empty.
-    """
+    """Split an AI summary into (facts, india_impact) at the 'India impact:' marker."""
     if not summary:
         return "", ""
-    # Match 'India impact' followed by ':' or '-' (with optional surrounding space)
     m = re.search(r"\s*India\s+impact\s*[:\-]\s*", summary, flags=re.IGNORECASE)
     if not m:
         return summary.strip(), ""
     facts = summary[: m.start()].strip()
     india = summary[m.end():].strip()
-    # Guard: if the split produced an empty facts side, keep everything as facts
     if not facts:
         return summary.strip(), ""
     return facts, india
 
 
 def render_article_card(row: pd.Series, cfg: dict, ai_summary: str = "") -> str:
-    # Keyword tag pill — sits above title in a horizontal row
-    tag_pill = (
-        f'<span style="background:{cfg["badge_bg"]};color:{cfg["badge_fg"]};'
-        f'font-size:11px;font-weight:700;padding:3px 10px;display:inline-block;'
-        f'letter-spacing:0.04em;text-transform:uppercase;{_FONT}">'
-        f'{row["keyword"]}</span>'
+    meta = " &middot; ".join(
+        x for x in (
+            f'<strong style="color:{_SNIP};">{row["org"]}</strong>' if row.get("org") else "",
+            row.get("date") or "",
+            f'<span style="color:{_GOLD};">{row["keyword"]}</span>' if row.get("keyword") else "",
+        ) if x
     )
-    tag_row = (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:9px;">'
-        f'<tr><td>{tag_pill}</td></tr></table>'
-    )
-
-    # Meta line: date · **source** (source bold and slightly darker)
-    date_part = (
-        f'<span style="color:{_MUTED};font-size:12px;{_FONT}">{row["date"]}</span>'
-        "&nbsp;&middot;&nbsp;"
-        if row.get("date") else ""
-    )
-    meta_line = (
-        f'<p style="margin:5px 0 7px 0;font-size:12px;color:{_MUTED};{_FONT}">'
-        f'{date_part}'
-        f'<strong style="color:{_SNIP};font-weight:700;{_FONT}">{row["org"]}</strong>'
-        "</p>"
-    )
-
-    # Raw snippet line removed — cards now show only the AI Overview below.
-
-    # Overview block — "Overview" label replaces "AI:", Georgia serif body text.
-    # If the AI summary contains an "India impact:" analysis line, split it out and
-    # render it on its own line with a bold gold-navy label so it reads as distinct
-    # analysis sitting beneath the factual summary.
-    overview_body = ""
-    if ai_summary:
-        facts_text, india_text = _split_india_impact(ai_summary)
-        overview_body = (
-            f'<p style="margin:0;font-size:14px;color:{_TEXT};line-height:1.7;{_SERIF}">'
-            f'{facts_text}'
-            "</p>"
-        )
-        if india_text:
-            overview_body += (
-                f'<p style="margin:8px 0 0 0;font-size:14px;color:{_TEXT};'
-                f'line-height:1.7;{_SERIF}">'
-                f'<span style="font-weight:700;color:{_NAVY};{_FONT}font-size:11px;'
-                f'letter-spacing:0.05em;text-transform:uppercase;">India Impact</span>'
-                f'&nbsp;&nbsp;{india_text}'
-                "</p>"
-            )
-
-    overview_part = (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        "<tr>"
-        f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:9px 12px;">'
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
-        # Label cell
-        '<td width="1" valign="top" style="padding-right:10px;white-space:nowrap;">'
-        f'<span style="font-size:11px;font-weight:700;color:{_NAVY};'
-        f'letter-spacing:0.07em;text-transform:uppercase;{_FONT}">Overview</span>'
-        "</td>"
-        # Body cell
-        '<td valign="top">'
-        f'{overview_body}'
-        "</td>"
-        "</tr></table>"
-        "</td></tr></table>"
-        if ai_summary else ""
-    )
-
-    # Tenders show no Overview summary — just the reference number (the deadline
-    # is already on the meta line). Reference replaces the whole summary block.
+    body = ""
     if row.get("category") == "Tenders":
         ref = row.get("reference") or ""
         if ref:
-            overview_part = (
-                '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-                "<tr>"
-                f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:9px 12px;">'
-                '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
-                '<td width="1" valign="top" style="padding-right:10px;white-space:nowrap;">'
-                f'<span style="font-size:11px;font-weight:700;color:{_NAVY};'
-                f'letter-spacing:0.07em;text-transform:uppercase;{_FONT}">Reference</span>'
-                "</td>"
-                '<td valign="top">'
-                f'<p style="margin:0;font-size:13px;color:{_TEXT};line-height:1.5;'
-                f'word-break:break-all;{_FONT}">{ref}</p>'
-                "</td>"
-                "</tr></table>"
+            body = (
+                f'<p style="margin:8px 0 0 0;font-size:13px;color:{_SNIP};word-break:break-all;{_FONT}">'
+                f'<span style="font-size:10px;font-weight:700;color:{_MUTED};letter-spacing:0.08em;'
+                f'text-transform:uppercase;">Ref&nbsp;</span>{ref}</p>'
+            )
+    elif ai_summary:
+        facts, india = _split_india_impact(ai_summary)
+        body = (
+            f'<p style="margin:8px 0 0 0;font-size:14px;line-height:1.6;color:{_TEXT};{_FONT}">'
+            f"{facts}</p>"
+        )
+        if india:
+            body += (
+                '<table width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:10px;"><tr>'
+                f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
+                f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:8px 12px;">'
+                f'<p style="margin:0;font-size:13px;line-height:1.55;color:{_TEXT};{_FONT}">'
+                f'<span style="font-size:10px;font-weight:700;color:{_NAVY};letter-spacing:0.08em;'
+                f'text-transform:uppercase;">India impact&nbsp;&nbsp;</span>{india}</p>'
                 "</td></tr></table>"
             )
-        else:
-            overview_part = ""
-
-    return (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        "<tr>"
-        # Gold left accent bar
-        f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
-        # Card body — full width, tags + title + meta + overview all at same indent
-        f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:14px 18px 13px 16px;'
-        f'border-bottom:1px solid {_DIVIDER};">'
-        f'{tag_row}'
-        f'<a href="{row["article_url"]}" style="color:{_NAVY};font-weight:700;'
-        f'font-size:15px;text-decoration:none;line-height:1.45;display:block;{_FONT}">'
-        f'{row["title"]}</a>'
-        f'{meta_line}'
-        f'{overview_part}'
-        "</td>"
-        "</tr></table>"
+    return _row(
+        f'<a href="{row["article_url"]}" style="color:{_NAVY};font-size:16px;font-weight:700;'
+        f'line-height:1.4;text-decoration:none;{_FONT}">{row["title"]}</a>'
+        f'<p style="margin:5px 0 0 0;font-size:12px;color:{_MUTED};{_FONT}">{meta}</p>'
+        f"{body}",
+        _WHITE, f"padding-top:18px;padding-bottom:18px;border-bottom:1px solid {_DIVIDER};{_PAD}",
     )
 
 
 def _render_theme_bar(theme: str, n: int) -> str:
-    """Slim navy theme sub-header (approved Mockup 2A): gold uppercase label + count."""
-    return (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        f'<tr><td bgcolor="{_NAVY_MED}" style="background:{_NAVY_MED};padding:6px 20px;">'
-        f'<span style="color:{_GOLD};font-size:11px;font-weight:700;'
-        f'letter-spacing:0.08em;text-transform:uppercase;{_FONT}">'
-        f'{theme}&nbsp;<span style="font-weight:400;color:#9fb0cd;">({n})</span>'
-        "</span>"
-        "</td></tr></table>"
+    return _row(
+        f'<p style="margin:0;font-size:11px;font-weight:700;color:{_GOLD};letter-spacing:0.12em;'
+        f'text-transform:uppercase;{_FONT}">{theme}'
+        f'&nbsp;<span style="color:{_MUTED};font-weight:400;">{n}</span></p>',
+        _WHITE, f"padding-top:22px;padding-bottom:2px;{_PAD}",
     )
 
 
@@ -4593,143 +4480,89 @@ def render_category_section(
 ) -> str:
     uid_summaries = uid_summaries or {}
     cat_df = df[df["category"] == category]
-    n = len(cat_df)
-    count_label = f'({n} item{"s" if n != 1 else ""})'
+    if cat_df.empty and not always_show:
+        return ""
+
+    def cards(frame):
+        return "".join(
+            render_article_card(r, cfg, ai_summary=uid_summaries.get(r["uid"], ""))
+            for _, r in frame.iterrows()
+        )
 
     if cat_df.empty:
-        if not always_show:
-            return ""
-        cards = (
-            '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-            "<tr>"
-            f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
-            f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:14px 18px;">'
+        inner = _row(
             f'<p style="margin:0;font-size:13px;color:{_MUTED};font-style:italic;{_FONT}">'
-            f"No new {category} items today."
-            "</p></td></tr></table>"
+            f"No new {category.lower()} today.</p>",
+            _WHITE, f"padding-top:12px;padding-bottom:20px;{_PAD}",
         )
     elif category == "ESG News" and "theme" in cat_df.columns:
-        # Approved Mockup 2A: group items under thematic sub-headers in fixed
-        # ESG_NEWS_THEMES order. Empty themes are skipped entirely. Items keep
-        # their relevance order within each theme (df is pre-sorted globally).
-        # Items with an unmapped/blank theme (shouldn't occur) fall to the end
-        # under DEFAULT_THEME via assign_theme's fallback.
         parts = []
         for theme in ESG_NEWS_THEMES:
-            theme_df = cat_df[cat_df["theme"] == theme]
-            if theme_df.empty:
-                continue
-            parts.append(_render_theme_bar(theme, len(theme_df)))
-            parts.append("".join(
-                render_article_card(row, cfg, ai_summary=uid_summaries.get(row["uid"], ""))
-                for _, row in theme_df.iterrows()
-            ))
-        # Safety net: render any rows whose theme isn't in ESG_NEWS_THEMES
+            t = cat_df[cat_df["theme"] == theme]
+            if not t.empty:
+                parts.append(_render_theme_bar(theme, len(t)) + cards(t))
         leftover = cat_df[~cat_df["theme"].isin(ESG_NEWS_THEMES)]
         if not leftover.empty:
-            parts.append(_render_theme_bar(DEFAULT_THEME, len(leftover)))
-            parts.append("".join(
-                render_article_card(row, cfg, ai_summary=uid_summaries.get(row["uid"], ""))
-                for _, row in leftover.iterrows()
-            ))
-        cards = "".join(parts)
+            parts.append(_render_theme_bar(DEFAULT_THEME, len(leftover)) + cards(leftover))
+        inner = "".join(parts)
     else:
-        cards = "".join(
-            render_article_card(row, cfg, ai_summary=uid_summaries.get(row["uid"], ""))
-            for _, row in cat_df.iterrows()
-        )
+        inner = cards(cat_df)
 
+    title = "News &amp; Regulation" if category == "ESG News" else category
     return (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0" '
-        f'style="margin-bottom:18px;border:1px solid {_DIVIDER};">'
-
-        # Section header
-        "<tr>"
-        f'<td bgcolor="{cfg["header_bg"]}" style="background:{cfg["header_bg"]};padding:10px 20px;">'
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
-        # Gold left bar inside header
-        f'<td width="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;">&nbsp;</td>'
-        '<td style="padding-left:10px;">'
-        f'<span style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:0.07em;'
-        f'text-transform:uppercase;{_FONT}">'
-        f'{category}&nbsp;'
-        f'<span style="font-weight:400;font-size:11px;color:{_GOLD};">{count_label}</span>'
-        "</span>"
-        "</td></tr></table>"
-        "</td>"
-        "</tr>"
-
-        f'<tr><td style="padding:0;">{cards}</td></tr>'
-
-        "</table>"
+        _row(
+            f'<p style="margin:0;font-size:22px;color:{_NAVY};{_SERIF}">{title}</p>'
+            '<table cellspacing="0" cellpadding="0" border="0" style="margin-top:8px;"><tr>'
+            f'<td width="40" height="2" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
+            "</tr></table>",
+            _WHITE, f"padding-top:30px;padding-bottom:4px;{_PAD}",
+        )
+        + inner
     )
 
 
 def render_footer() -> str:
-    return (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0">'
-        f'<tr><td height="3" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td></tr>'
-        f'<tr><td bgcolor="{_NAVY}" style="background:{_NAVY};padding:13px 24px;text-align:center;">'
-        f'<p style="font-size:11px;color:{_MUTED};margin:0;{_FONT}">'
-        "All links go directly to source articles&nbsp;&middot;&nbsp;"
-        "Historical duplicates auto-filtered"
-        "</p></td></tr></table>"
+    return _row(
+        f'<p style="margin:0;font-size:11px;line-height:1.6;color:#8a97ab;{_FONT}">'
+        "Automated daily scan of regulators, gazettes, tender portals and ESG news. "
+        "Summaries are AI-generated from source snippets &mdash; follow the link before relying on any item."
+        "</p>",
+        _NAVY, f"padding-top:18px;padding-bottom:18px;{_PAD}",
     )
 
 
-def _brief_subheading(label: str) -> str:
-    """Small-caps gold-underlined subheading used inside the Daily Brief (1B)."""
-    return (
-        f'<p style="margin:0 0 6px 0;font-size:11px;font-weight:700;color:{_NAVY};'
-        f'text-transform:uppercase;letter-spacing:0.09em;'
-        f'border-bottom:1px solid {_GOLD};padding-bottom:4px;{_FONT}">'
-        f"{label}</p>"
-    )
+def render_ai_digest_block(india_glance, global_brief) -> str:
+    """Key takeaways: two short bullet lists. Accepts lists (new) or strings (old)."""
+    def as_list(v):
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return list(v or [])
 
-
-def render_ai_digest_block(india_glance: str, global_brief: str) -> str:
-    """
-    Daily brief block — approved Mockup 1B layout:
-      "Good morning." → [ESG in India at a Glance + para] → [Global Developments + para]
-    Either part is skipped when its text is empty; if both are empty the whole
-    block is omitted (same behaviour as before).
-    """
+    india_glance, global_brief = as_list(india_glance), as_list(global_brief)
     if not (india_glance or global_brief):
         return ""
 
-    body = (
-        f'<p style="margin:0 0 10px 0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
-        "Good morning."
-        "</p>"
-    )
-    if india_glance:
-        body += (
-            _brief_subheading("ESG in India at a Glance")
-            + f'<p style="margin:0 0 14px 0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
-            + india_glance
-            + "</p>"
+    def block(label, items):
+        if not items:
+            return ""
+        rows = "".join(
+            "<tr>"
+            f'<td width="16" valign="top" style="padding:3px 0 7px 0;font-size:14px;line-height:1.55;color:{_GOLD};{_FONT}">&#9632;</td>'
+            f'<td valign="top" style="padding:3px 0 7px 0;font-size:14px;line-height:1.55;color:{_TEXT};{_FONT}">{b}</td>'
+            "</tr>"
+            for b in items
         )
-    if global_brief:
-        body += (
-            _brief_subheading("Global Developments")
-            + f'<p style="margin:0;font-size:15px;color:{_TEXT};line-height:1.7;{_SERIF}">'
-            + global_brief
-            + "</p>"
+        return (
+            f'<p style="margin:14px 0 6px 0;font-size:11px;font-weight:700;color:{_NAVY};'
+            f'letter-spacing:0.12em;text-transform:uppercase;{_FONT}">{label}</p>'
+            f'<table width="100%" cellspacing="0" cellpadding="0" border="0">{rows}</table>'
         )
 
-    return (
-        '<table width="100%" cellspacing="0" cellpadding="0" border="0" '
-        'style="margin-bottom:6px;">'
-        "<tr>"
-        f'<td width="4" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
-        f'<td bgcolor="{_GOLD_BG}" style="background:{_GOLD_BG};padding:16px 20px;">'
-        f'<p style="margin:0 0 7px 0;font-size:11px;font-weight:700;color:{_MUTED};'
-        f'text-transform:uppercase;letter-spacing:0.09em;{_FONT}">'
-        "Daily Brief"
-        "</p>"
-        f"{body}"
-        "</td>"
-        "</tr></table>"
+    return _row(
+        f'<p style="margin:0;font-size:20px;color:{_NAVY};{_SERIF}">Key takeaways</p>'
+        + block("India", india_glance)
+        + block("Global", global_brief),
+        _GOLD_BG, f"padding-top:24px;padding-bottom:18px;{_PAD}",
     )
 
 
@@ -4784,7 +4617,7 @@ def build_email(df_new: pd.DataFrame) -> str:
             f'<td width="4" bgcolor="{_GOLD}" style="background:{_GOLD};font-size:0;line-height:0;">&nbsp;</td>'
             f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:20px 18px;">'
             f'<p style="color:{_TEXT};font-size:14px;margin:0;line-height:1.7;{_SERIF}">'
-            "Daily scan completed &mdash; no new matching items found today. "
+            "Daily scan completed &mdash; no new matching items today. "
             "All sources are up to date."
             "</p></td></tr></table>"
         )
@@ -4806,7 +4639,11 @@ def build_email(df_new: pd.DataFrame) -> str:
         summary_html = render_summary_bar(df_render)
         ai_digest_html = render_ai_digest_block(india_glance, global_brief)
 
-    inner = render_header(len(df_render)) + summary_html + ai_digest_html + content + render_footer()
+    inner = (render_header(len(df_render)) + summary_html + ai_digest_html
+             + f'<table width="100%" cellspacing="0" cellpadding="0" border="0"><tr>'
+               f'<td bgcolor="{_WHITE}" style="background:{_WHITE};padding:8px 0 0 0;">{content}</td>'
+               '</tr></table>'
+             + render_footer())
 
     # MSO conditional comment centres the email in Outlook desktop (which ignores
     # max-width + margin:auto on divs).  Non-Outlook clients use the div instead.
@@ -4821,11 +4658,11 @@ def build_email(df_new: pd.DataFrame) -> str:
         '<body style="margin:0;padding:0;background:#eef0f5;">'
 
         "<!--[if mso]>"
-        '<table align="center" width="1100" cellspacing="0" cellpadding="0" border="0">'
-        '<tr><td bgcolor="#eef0f5" style="background:#eef0f5;padding:20px;">'
+        '<table align="center" width="680" cellspacing="0" cellpadding="0" border="0">'
+        '<tr><td bgcolor="#eef0f5" style="background:#eef0f5;padding:24px 0;">'
         "<![endif]-->"
 
-        f'<div style="max-width:1100px;margin:0 auto;padding:20px;background:#eef0f5;{_FONT}">'
+        f'<div style="max-width:680px;margin:0 auto;padding:24px 0;background:#eef0f5;{_FONT}">'
         + inner +
         "</div>"
 
