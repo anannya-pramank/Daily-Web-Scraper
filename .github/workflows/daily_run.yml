@@ -3,10 +3,13 @@ on:
   # No cron: GitHub schedules start hours late. The Power Automate flow
   # "ESG Scraper 6am Trigger" dispatches this at 05:45 IST (00:15 UTC) and the
   # "Daily ESG Scraper Email Forwarder" flow releases the email at 06:00 IST.
+  # The scraping itself is normally done earlier (05:15 IST) by run_local.py
+  # on a laptop in India, which pushes local_matches.json; scraper.py uses
+  # that file when < 6h old and scrapes here only as the fallback.
   workflow_dispatch:
     inputs:
       force:
-        description: "Run even if the laptop already delivered today's digest"
+        description: "Scrape on GitHub even if the laptop's matches are fresh"
         type: boolean
         default: false
 jobs:
@@ -18,44 +21,25 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # The laptop runner (run_local.py, Windows Task Scheduler, 05:15 IST)
-      # sweeps from an Indian IP first — eprocure.gov.in resets connections
-      # from GitHub's US runners. When it delivered today it writes
-      # local_run.txt, and this run (dispatched 05:45 IST) stands down; it
-      # only sweeps as the fallback when the laptop missed the day.
-      - name: Skip if the laptop already delivered today
-        id: gate
-        run: |
-          TODAY=$(TZ=Asia/Kolkata date '+%Y-%m-%d')
-          if [ "${{ inputs.force }}" != "true" ] && grep -qs "^$TODAY" local_run.txt; then
-            echo "Laptop already delivered the $TODAY digest — skipping."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: steps.gate.outputs.skip != 'true'
-        name: Set up Python 3.11
+      - name: Set up Python 3.11
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - if: steps.gate.outputs.skip != 'true'
-        name: Install Dependencies
+      - name: Install Dependencies
         run: |
           pip install requests beautifulsoup4 pandas openpyxl feedparser lxml playwright playwright-stealth
 
-      - if: steps.gate.outputs.skip != 'true'
-        name: Cache Playwright browsers
+      - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ hashFiles('**/daily_run.yml') }}
 
-      - if: steps.gate.outputs.skip != 'true'
-        name: Install Playwright browsers
+      - name: Install Playwright browsers
         run: playwright install chromium --with-deps
 
-      - if: steps.gate.outputs.skip != 'true'
-        name: Pre-flight — Gemini check
+      - name: Pre-flight — Gemini check
         continue-on-error: true
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -87,15 +71,14 @@ jobs:
               raise SystemExit(1)
           PYEOF
 
-      - if: steps.gate.outputs.skip != 'true'
-        name: Run ESG Scraper
+      - name: Run ESG Scraper
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PYTHONUNBUFFERED: '1'
+          FORCE_SCRAPE: ${{ inputs.force && '1' || '0' }}
         run: python scraper.py
 
-      - if: steps.gate.outputs.skip != 'true'
-        name: Persist History & Email Archive
+      - name: Persist History & Email Archive
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "ESG Intelligence Bot"
