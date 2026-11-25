@@ -1,10 +1,10 @@
 {
- "created_utc": "2026-11-25T21:02:35.752554+00:00",
+ "created_utc": "2026-11-25T21:27:26.884037+00:00",
  "tender_portal_down": false,
  "tender_gate_stats": {
-  "rows": 1530,
+  "rows": 1529,
   "excluded": 31,
-  "no_gate": 1492,
+  "no_gate": 1491,
   "passed_legal": 1,
   "passed_topic": 0,
   "passed_energy": 6,
@@ -47,13 +47,13 @@
   {
    "org": "CPPP Active Tenders – Central",
    "category": "Tenders",
-   "keyword": "Wind Energy Project",
-   "title": "REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GR",
-   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000008",
-   "date": "Deadline: 04 Dec 2026",
-   "reference": "TeCL/CC/Wind/2026-27/11 · Tender ID TeCl-2026-TN000008",
-   "snippet": "01-10-2026 12:10 04-12-2026 15:00 04-12-2026 15:30 REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GRID SUBSTATION, GUJARAT REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GRID SUBSTATION, GUJARAT TeCL/CC/Wind/2026-27/11 TeCl-2026-TN000008 Terra Clean Limited Ministry of Petroleum and Natural Gas Land/Building",
-   "uid": "2cb8f0b16a281f"
+   "keyword": "Solar Energy Project",
+   "title": "REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GE",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000009",
+   "date": "Deadline: 02 Dec 2026",
+   "reference": "TeCL/CC/Solar/2026-27/13 · Tender ID TeCl-2026-TN000009",
+   "snippet": "07-10-2026 11:46 02-12-2026 15:00 02-12-2026 15:30 REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GETCO SUBSTATION, DIST MORBI, GUJARAT REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GETCO SUBSTATION, DIST MORBI, GUJARAT TeCL/CC/Solar/2026-27/13 TeCl-2026-TN000009 Terra Clean Limited Ministry of Petroleum and Natural Gas Land/Building",
+   "uid": "55dadc6dd410d4"
   },
   {
    "org": "CPPP Active Tenders – Central",
@@ -80,13 +80,13 @@
   {
    "org": "CPPP Active Tenders – Central",
    "category": "Tenders",
-   "keyword": "Solar Energy Project",
-   "title": "REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GE",
-   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000009",
-   "date": "Deadline: 02 Dec 2026",
-   "reference": "TeCL/CC/Solar/2026-27/13 · Tender ID TeCl-2026-TN000009",
-   "snippet": "07-10-2026 11:46 02-12-2026 15:00 02-12-2026 15:30 REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GETCO SUBSTATION, DIST MORBI, GUJARAT REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GETCO SUBSTATION, DIST MORBI, GUJARAT TeCL/CC/Solar/2026-27/13 TeCl-2026-TN000009 Terra Clean Limited Ministry of Petroleum and Natural Gas Land/Building",
-   "uid": "55dadc6dd410d4"
+   "keyword": "Wind Energy Project",
+   "title": "REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GR",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000008",
+   "date": "Deadline: 04 Dec 2026",
+   "reference": "TeCL/CC/Wind/2026-27/11 · Tender ID TeCl-2026-TN000008",
+   "snippet": "01-10-2026 12:10 04-12-2026 15:00 04-12-2026 15:30 REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GRID SUBSTATION, GUJARAT REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GRID SUBSTATION, GUJARAT TeCL/CC/Wind/2026-27/11 TeCl-2026-TN000008 Terra Clean Limited Ministry of Petroleum and Natural Gas Land/Building",
+   "uid": "2cb8f0b16a281f"
   },
   {
    "org": "ESG Today",
@@ -111,12 +111,12 @@
   {
    "org": "ESG Today",
    "category": "ESG News",
-   "keyword": "Transition Finance",
-   "title": "BBVA Launches Transition Finance Framework to Back Decarbonization of Hard-to-Abate Sectors",
-   "article_url": "https://www.esgtoday.com/bbva-launches-transition-finance-framework-to-back-decarbonization-of-hard-to-abate-sectors/?utm_source=rss&utm_medium=rss&utm_campaign=bbva-launches-transition-finance-framework-to-back-decarbonization-of-hard-to-abate-sectors",
-   "date": "25 Nov 2026",
-   "snippet": "Spanish bank BBVA announced the launch of its new Transition Debt Finance Framework, aimed at […]",
-   "uid": "e9335c4625c6c2"
+   "keyword": "Carbon Removal",
+   "title": "Planet Savers Raises Over $10 Million to Scale Direct Air Capture Carbon Removal Tech in Japan",
+   "article_url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxOMEhhN1h6WU85akVEMkhxNm9zWUJMX2ZPbDZCUm0yTVk4UVBvZTBLX1M1dDdtY3VBWmt5ZE5TckdrdktjSEFCSlJiZmtLb1JPbGVfdWVlY29XeEgzYlZLbWhsRDdzYlhndXZaSjg4Y2wtNjRqTS1QMy1WRnVHNHJCNV80VG9ET0R6M3dHcmtiQVctTGRzbXFZOUQ4eFVWejNRLU43dDNCaGtXMFpnTFE4?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "Planet Savers Raises Over $10 Million to Scale Direct Air Capture Carbon Removal Tech in Japan ESG Today",
+   "uid": "c480f9e5a5fdfb"
   },
   {
    "org": "ESG News",
@@ -141,12 +141,12 @@
   {
    "org": "ESG News",
    "category": "ESG News",
-   "keyword": "ESG Framework",
-   "title": "Corporate Responsibility Report Review: Summit Hotel Properties Embeds ESG Frameworks Across 92 Hotels",
-   "article_url": "https://esgnews.com/summit-hotel-properties-2026-esg-corporate-responsibility-report-review/",
+   "keyword": "ISSB",
+   "title": "TNFD Calls on ISSB to Upgrade Nature Guidance to a Standard With Required Metrics",
+   "article_url": "https://news.google.com/rss/articles/CBMiakFVX3lxTFBka0twbjd2Y3JUelYyNDRwSnJNMFFZZ0wtNmI3dDZ1OXAyRjh2RVZPeXlVRFB3d0lQTmlNWHJwcW1GSTk0U3k0dVFrR0lEeG1sWmVMZW4zb0RMcmk2MEZLdHQ3UGY3STNTNmc?oc=5",
    "date": "24 Nov 2026",
-   "snippet": "Summit Hotel Properties 2026 Corporate Responsibility Review, ESG framework standardization across hospitality RIET portfolio. The post Corporate Responsibility Report Review: Summit Hotel Properties Embeds ESG Frameworks Across 92 Hotels appeared first on ESG News.",
-   "uid": "5fadc0952b70a7"
+   "snippet": "TNFD Calls on ISSB to Upgrade Nature Guidance to a Standard With Required Metrics ESG News",
+   "uid": "066cf0210e87c3"
   },
   {
    "org": "Sustainability Magazine",
@@ -161,22 +161,22 @@
   {
    "org": "Sustainability Magazine",
    "category": "ESG News",
+   "keyword": "Decarbonisation",
+   "title": "IFS: Balancing AI’s Impact in Industrial Decarbonisation",
+   "article_url": "https://news.google.com/rss/articles/CBMikwFBVV95cUxNWmlRNkZIS3hCb3d6bGxQWkRoSDUxTjhLQWV5QTkzMWJZVUZzeGlxano2cnVEcEc0VkozM0k3d0hTbDJ5cEY3ODI2T2Mxd25ZU2F6VUgtckpjRjlELWNGMmtsY0lVa1M1dnlHNGtiaENBVnVXQjFaS05JQTBZUXJvbXBHOE4tTlJiTkotY09GU3p5eHc?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "IFS: Balancing AI’s Impact in Industrial Decarbonisation Sustainability Magazine",
+   "uid": "c6e10a72c6b903"
+  },
+  {
+   "org": "Sustainability Magazine",
+   "category": "ESG News",
    "keyword": "Energy Transition",
    "title": "Nexans: Advancing the Energy Transition and Meeting Net Zero",
    "article_url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxPdEpqam1hS1FEVjg0N3JWVGFfVGZSVkc3a1FTVXh5R3NhZ2FJeXZqU0dDNm1IY1ZJbl9JYXFrVmRZNnRWMkMtVlk1cm50TWxrdGNtZ1lWSTBUd2R1Qk1lS2hRWlZyNkd1Mm1raDQyMUpBSjEyVFM4djJ5T3NQWFBVS0tLWmNfdjliVzJOcWw0ejVLQ2w5M09MLUVn?oc=5",
    "date": "24 Nov 2026",
    "snippet": "Nexans: Advancing the Energy Transition and Meeting Net Zero Sustainability Magazine",
    "uid": "1bcb64e56fea59"
-  },
-  {
-   "org": "Sustainability Magazine",
-   "category": "ESG News",
-   "keyword": "Sustainability",
-   "title": "Sustainability Sector Reacts to “Hollow” COP31",
-   "article_url": "https://news.google.com/rss/articles/CBMihgFBVV95cUxOZU1zYnRocjU1dUNjX0lvV1lUUUJiQjVDbml2bDVseVJ0Y3JEWUE4V3lLU2FENzlmcjZ6SVBjNnVtUWpqVklMWnNHbk8wZjU1MDJCcEFTdF9XMFE3R0tUWGRwUU96dHBkTDRkZ0dvc0hxMEhtbmI1bi1HTkd4NVRtMjktdThIdw?oc=5",
-   "date": "23 Nov 2026",
-   "snippet": "Sustainability Sector Reacts to “Hollow” COP31 Sustainability Magazine",
-   "uid": "17a6d0716384a9"
   },
   {
    "org": "Financial Advisor Magazine",
@@ -187,6 +187,16 @@
    "date": "24 Nov 2026",
    "snippet": "Trump's DOL Aims At Restricting ESG Investing In 401(k)s FA Mag",
    "uid": "4eef4e12a22e5f"
+  },
+  {
+   "org": "Environmental Finance",
+   "category": "ESG News",
+   "keyword": "Climate Risk",
+   "title": "From net zero to resilience: how investors are reshaping their approach to climate risk",
+   "article_url": "https://news.google.com/rss/articles/CBMi5wFBVV95cUxOOGNzRmdheE4zdTBnTjg1S09rZGxSSnVxV0p6VUxZYkJkSE5FQWdUeTJZdTRhMUk3N2hPMEVkQ1h0SjMtSGZqWlpDdVRUbllRYmJZVzh3cU0tLURtVFRQbWZRaDRWS00xdTU3UkJHTFZVekVRSENzSnR4T3B0ekVxUnJqQWl0NjRGQzJtVE9kMVoyTmNsTXBobG1HM3U3ZlFEQXhNOTRiR3o0X01PN01UMFRReE1lVlRSX3NoQ0UyTVdWeFBiM0wtNG9VWVg0R1d2YTVhQmwxSm1iblBZdU1jOXJwVU15U3M?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "From net zero to resilience: how investors are reshaping their approach to climate risk Environmental Finance",
+   "uid": "0504a8bf838fb7"
   },
   {
    "org": "GreenMoney",
@@ -259,6 +269,56 @@
    "uid": "94730fce54ab8a"
   },
   {
+   "org": "Bain",
+   "category": "ESG News",
+   "keyword": "Energy Transition",
+   "title": "The Energy Transition Runs Through Asia",
+   "article_url": "https://www.bain.com/insights/energy-transition-runs-through-asia-ceo-sustainability-guide-2026/",
+   "date": "",
+   "snippet": "Sustainability The Energy Transition Runs Through Asia What happens in China, India, Indonesia, and South Korea will shape important decisions and opportunities for companies globally.",
+   "uid": "ac317842665f7e"
+  },
+  {
+   "org": "Bain",
+   "category": "ESG News",
+   "keyword": "Climate Week NYC",
+   "title": "Why the Energy Transition Is Scaling and Circularity Isn’t—Yet",
+   "article_url": "https://www.bain.com/insights/why-the-energy-transition-is-scaling-and-circularity-isnt-yet-video/",
+   "date": "",
+   "snippet": "Sustainability Why the Energy Transition Is Scaling and Circularity Isn’t—Yet At Climate Week NYC 2026, Bain’s Jean-Charles van den Branden chats with Siemens’ global head of sustainability, Eva Riesenhuber, about scaling the energy transition and why circularity is the next frontier.",
+   "uid": "04f8319c7cad8e"
+  },
+  {
+   "org": "Bain",
+   "category": "ESG News",
+   "keyword": "Climate Week NYC",
+   "title": "Why Mars Thinks About Climate Risk in Generations, Not Quarters",
+   "article_url": "https://www.bain.com/insights/why-mars-thinks-about-climate-risk-in-generations-not-quarters-video/",
+   "date": "",
+   "snippet": "Sustainability Why Mars Thinks About Climate Risk in Generations, Not Quarters At Climate Week NYC 2026, Bain’s Harry Morrison discusses Mars’ farmer-focused approach to climate resilience with the company’s chief sustainability officer, Alastair Child.",
+   "uid": "1f098b599f779b"
+  },
+  {
+   "org": "PIB India",
+   "category": "ESG News",
+   "keyword": "Climate Finance",
+   "title": "India calls for Equity, Climate Justice and Fulfilment of Climate Finance Obligations at UNFCCC COP31, at Antalya (Türkiye)",
+   "article_url": "https://news.google.com/rss/articles/CBMihAFBVV95cUxPb3RJWWR0Nm5iVVpneEZpX1Y1SjV3aXFabDFVQkxlbjcwTlZjR2hCQjNiQWFkTHplUmlvU29EWFRybHhuM216QWJ5VEpibmVTS1o0STFFZlBGUUVtNjhVcV9yLW9CVzZDaF9OUjNVRHhQQkQtTkF1UmZpU00yNWRIWlRoSlE?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "India calls for Equity, Climate Justice and Fulfilment of Climate Finance Obligations at UNFCCC COP31, at Antalya (Türkiye) www.pib.gov.in",
+   "uid": "4a07305fdec58c"
+  },
+  {
+   "org": "PIB India",
+   "category": "ESG News",
+   "keyword": "Energy Transition",
+   "title": "India's Wind Energy Transition",
+   "article_url": "https://news.google.com/rss/articles/CBMiZEFVX3lxTFBPWHFlejB0NGlNUDdpTFFHOGpWUjJNQUJyMThTdk0yNlEySXRKaHdSVVRZeDNIWVREVFlVSDBwUVlDV0V4eGJSOWxYOU5Tbl9UUnZMejl3NXU5UXRoQklYTmdoTGg?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "India's Wind Energy Transition pib.gov.in",
+   "uid": "cffc7720c6798d"
+  },
+  {
    "org": "The Hindu",
    "category": "ESG News",
    "keyword": "COP31",
@@ -271,22 +331,32 @@
   {
    "org": "Economic Times",
    "category": "ESG News",
-   "keyword": "Ammonia",
-   "title": "ACME’s $3.6 billion green ammonia project to boost India’s chemical sector",
-   "article_url": "https://news.google.com/rss/articles/CBMi_AFBVV95cUxQeTNERXV2WUlqNEFLNzZxQ1d2enVSNDlqMkdiWWY1MzhCZV85d05MUjN2cDczMFlPUHJTTnBFNk9iTzZnNVVXeGhOSVhMN05KMDBoSHNCX19ELUJtek9QT2p3TTg1SGhYUGo2X2k0MXM5OWxUN28wX0QwOTRrSmZFYlBKam9sMG1yOEh6VWZBdGR4R0dIN2cyTXdqZmptS2QwV2hkdUdKVXVmTDc3eUxIbC1yTmsxRXRncGo5b0JLUmRIRlQySEE2TmpBa0hXbmtpSl9vTFhPdjdvQ3pxMFJhQkdpWDhBcVNkU3RqZzMwbFQ5NWNqSzl4d2xPQTLSAYICQVVfeXFMTy1ZVkZUM2hCZDUyZlAyNlNURDFwalNaZFJmY2pmcGpWY2V0dVh6cktENm9CN3lHVW1yaGk4OERnS0JjOUFiNHBYX0Q3QzFPLWdmQm9HTlIxd0pzMURsTWhFOHdrMFpSMDlaeWk1ZWdWX1pWX0NwbDVwaTdKeTBxYUxpOC1Fbk1CXzZnLXZzOTNjVDFBMUZ1eHN0Z1VtREZITGdrU01mTjk0NG0wNXV1Y2c5RUcxcXRlbEdZNTFFNW5KbFk1WUJJNC15Y2ctNTFmR1BDNjRzYVFYaW1TMkI2UkVKWllFOFBZTHJqZEJIb2lNM2RRTDZ1XzB6MFlMSzl0SDZ3?oc=5",
-   "date": "23 Nov 2026",
-   "snippet": "ACME’s $3.6 billion green ammonia project to boost India’s chemical sector ET Chemicals",
-   "uid": "2af168c04828aa"
+   "keyword": "Sustainability",
+   "title": "India's green transition faces a costlier test after COP31 talks collapse",
+   "article_url": "https://news.google.com/rss/articles/CBMi-AFBVV95cUxOVThRS0hzNy1yS1ptVGJUaGNkZWwwTUl2NjBlMnp2TDQ3Qk5xSG1CTk42Y04yeHpmZWJLX200VDRVSkVWaGVjaHAtUnl4REFIZTVqeWJvNmU0VnRPWi1MV04yMk8xdHlYRWp0Q2p5Zi04cnJfaE5icFR1MkpZbFJsSnFkR2JMVEczYlB6eFBfVkNEZ2JXQmYtcjJhSG5JM0VpNFFybnQ4MFJ3VGprNnhpT0ViVDZLMW1RMm5HQWU4UmhMSjdIdmFXZmJ0WlotcWpWd3QtY0ZWaV92djJaeXliMElmVXpaMjVVY1JoS0xxcGtMSVFrTG9Ka9IB_gFBVV95cUxNMlVHMGNuUTlfNklsMERfMjZIWWVtOEo5QW9ZS0drLXBnNGNmYllVWVFYeXdZSmtFZi1LU0NXLXpDemJWSTJRbnpsSmxmWHVCcnZ5RlJoRG1hWndOdkpoTU94UURoOW5PZ1FsZ1JLcVZCQnRkN2NjTXJFc2dTSDF6UTIzOFgxXzFxaGpoQUZYT3RoWjZfdFJFenN0LUJ6emRyWDJhVmYwQnpUMUhGRFo1cmNrVTlNbmhoNlp4b3o2LTB6dXlCSF9lUjZ6VXZPMzNRSHdKcnJiUEUtazRvWl9CM2JCdzQ1OWx1VXZsTWtUSXg2TC1Mc1M4STVoZG5zUQ?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "India's green transition faces a costlier test after COP31 talks collapse ET Sustainability",
+   "uid": "75021f4aab20d6"
   },
   {
    "org": "Economic Times",
    "category": "ESG News",
-   "keyword": "Climate Finance",
-   "title": "The energy security blind spot in global climate finance",
-   "article_url": "https://news.google.com/rss/articles/CBMiwwFBVV95cUxNdGc1NUE1NW5LOVlTMXhuUmZETmpYek0xd2h3UEs4Z3pRbVVGVldCanNxQUE0TGd2bW5Objd2VXlkUnVjQ1hCVS1DcDN3X1M1VU5ieTc3Yl9zRE0wVXJJaVVNVEttcVQ4Z3NrY2xySmNCZXYteE4taWJ6TnJ2MlR2MlFtckg3M09LZmNhSGU5RlVENk80cmY4bTBXdXNLVm94Q2ZiRnU0QVdkY3EyNHNnZzF1LTU2QWVxNWlHOXlUdjZZWXfSAcgBQVVfeXFMT3BfSDNLUkY5MGI1cmoydXBYNWp1RlhrN0N3QzV6NTZfYXJWZy10WEEtaUJBM29CZV9odGVvVVo3ZEcwaFV2dWVsZnpfRXVCQzh4UlhIYVRNR1lPVDR5cVVySlJZZkRDSlJoc1hGV2dIakZ4VDNuZWktV3NGVWlBTm84dlh6TlNtYUVRWnRTRmh0R2RmNE5PUW1SdVQxTzBydEZvbEY1dl9EYmxULUhFanNNVmhRSHhUNTBEbzdjY05lNzlVdXBoVE0?oc=5",
+   "keyword": "Sustainability",
+   "title": "India set to miss 2030 EV targets, except for three-wheelers",
+   "article_url": "https://news.google.com/rss/articles/CBMi3AFBVV95cUxPbzBDN2o0RVhLQ2VmY09sUnhvbGhqN1h3MnFHM1pDTjQzTklyb3o4SEVGZUF4X2w4N2JYOF92U0FHaXhIazY4RDc1QU9wbGFKMF9sOXllVFpjUnBpdzNRR0ZjYm01aFA4c0JSRWhxZ3dENUpVODBhN2RrcTFDOWhUcWVra25KcmRzaXktUjlnZGlOSDVBVElzYTZHUEVselhzSHluYjV2eU9ndWl6OUg3OEg0R1BNWEI2ZENXaFRfYXFxZGxIYTVveWw3eHNwV2NNN1ZZWjdsNFI1YXZL0gHiAUFVX3lxTE9ncFExZWZteko5cTZQNnU4UGNmUk96cmxQZEVRclBuNDZfMVJXVEw0Zlh0bjdNVWVjX1VVaDA3Q1lnbDdqcVlydjZaMndKY085M1JuLVdkMkJJWTVzVWVRbDg2X2otSlRhd2hIU214SFFpMEpFVVBIRS1zVWxNZkxHQm5taXRUUVFqOHdxTHE5QWpHVUw1Q1JwZGhydVJ4XzRkQ2xNc05pNFFza2FMbkQxZEtQZV84dV9xa1IzWHRhVVBQRTh0YWE3ZXJEV1VkSEg2dE1NT2J0MDV1NlB6RHNSX3c?oc=5",
    "date": "25 Nov 2026",
-   "snippet": "The energy security blind spot in global climate finance ET EnergyWorld",
-   "uid": "7b181e29a2b342"
+   "snippet": "India set to miss 2030 EV targets, except for three-wheelers ET Sustainability",
+   "uid": "a5a1b4f6f78d5e"
+  },
+  {
+   "org": "Economic Times",
+   "category": "ESG News",
+   "keyword": "Sustainability",
+   "title": "India likely to miss 2030 EV goals as BNEF flags three-wheeler exception",
+   "article_url": "https://news.google.com/rss/articles/CBMi7gFBVV95cUxPbmcwZWZhU2pwMDBzeGJiazgtSm5jSHJRV1M1V19qNDlPUUt4dGRNeUIzM2Q0M3QwMzUtUGFMZlppQ1ZTMDh4RVZJbXF3Yy1SZjh6WXFkMnpYeEhGMGZFUU50NURGMGxqYlQ1bi1kR2s2NDlVb3NVZTdIWm1HTmhtTFFYU2lndlJ5WDBlZlpySzRIRm9OQXRVVnFfeVdzX1RHYkJPSEl5RVlqSVFwUUl0YUwyZDdEX3gyc3lzMmhKdzV3SDhvWE5fOWNiYXhZblpWUk02eHQ5TGVxNHQwYm15ZDZNdjZ5UndJaWRMOTdB0gHzAUFVX3lxTFAyVE5nbUI3dzJ6TEJSU0MtTkhEY0YyMDJxa3dwSGhlZnBMRmVSdlZwakFPbGpKbUZoRnUzYmN5TGZlUW9FRG1KZ05LaDUyTzhJcFR3eTdST3ZvQXMwLUZtYXg5STZGQkFueEtvU0N1YnU2ZlpwVW5LYTVIbFNjQm1Ma2YtM0ZhYng2WE91ZWswRTVHMmFvOUFjYzFvczlGWmNsNHV0MU9hVGMxV2psMm9nX0hWOXBITDY2RUliNlZvZk5CbEpCc3IycnIxd0JwQTFyYXJOZklqYkZqMlluTXhLcmg5OVprdmhHblVxQUdndnp6SQ?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "India likely to miss 2030 EV goals as BNEF flags three-wheeler exception ET Sustainability",
+   "uid": "4a04367f779110"
   },
   {
    "org": "Reuters",
@@ -297,6 +367,26 @@
    "date": "23 Nov 2026",
    "snippet": "Hopes for green hydrogen revive as industry seeks to cut costs Reuters",
    "uid": "21f319185c823f"
+  },
+  {
+   "org": "Bloomberg",
+   "category": "ESG News",
+   "keyword": "Sustainable Finance",
+   "title": "November 2026 Global Regulatory Brief: ESG ratings, sustainable finance and carbon markets",
+   "article_url": "https://news.google.com/rss/articles/CBMi4gFBVV95cUxQVnNWakxzMkViYVY4WGtraEFBSExMUXZudEtvejNuby1kWU1MYUd6SWowT0tnUTVENmFQYnZoLXE2ekUxUGZXcTFjNjFuZTJMckxuYTZxVTFUb3hxb0s3T2J4NmFBdW1WR0l5aXcxaG16VEF6b29ISDBRNE9nbEhoSjF2aG1ycmJPV3V0bUZqNGVzRkpKa1lob1NaV1JMa1BHSmlPT01SLThsblk1REJYd1lVVjBfUDZlNGNyV3VQTTlqak1oSTRHeThUQUhBMHRSUEoycTIyQUsyX0RfV0pDVURB?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "November 2026 Global Regulatory Brief: ESG ratings, sustainable finance and carbon markets Bloomberg.com",
+   "uid": "ae231d5f131284"
+  },
+  {
+   "org": "Clifford Chance",
+   "category": "ESG News",
+   "keyword": "Sustainability Bond",
+   "title": "Clifford Chance advises global coordinators and bookrunners on Aedifica's €500 million sustainability bond issuance",
+   "article_url": "https://news.google.com/rss/articles/CBMi-wFBVV95cUxPZHd6N201ZDdaVENvbWc0ZWtEM1pPOTUtenl4c2ZzNmMxSVh4dktzV0FZTWRJcnhLNmlhaDZhZzRsQ2JqeWFmT1NFQndQemd2b09CWkFSSTlUZDBCenQtWTF6OE9wU2J2NHVqWWRkZVNiT1dYYjdaNlVSWmdaZFdmVV8yb2dfRW9LYXdaYWNFNkYzN2ZtcXYycUZjWmI4XzdfVW8yaklPTUczWW9HUHFzdnVBd2NrYVkzWVczYjU5bHp6LUFmNmttVjJ2dE1aeVlhOWVsNjZINmszVmlUU2RhZ09FTXFWemZJbDliS2ZNaFVPelRhdGpnd2ZIbw?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "Clifford Chance advises global coordinators and bookrunners on Aedifica's €500 million sustainability bond issuance Clifford Chance",
+   "uid": "1c2f2ee66a0fdc"
   },
   {
    "org": "Clifford Chance",
@@ -342,6 +432,16 @@
    "org": "World Economic Forum",
    "category": "ESG News",
    "keyword": "World Economic Forum",
+   "title": "What India can teach the rest of the world about chip manufacturing",
+   "article_url": "https://news.google.com/rss/articles/CBMisgFBVV95cUxNTC1LWURHM1YxenFEM3JyV1ZuZ0xKbldoMXRMY2l2MWxrLXJxR3I1cXBBekZyeTdNX1hzT2tfZVQ3bWFnYlRZVnJqbUV3MWxoOFl2Wk4yYV9NY1VwSVVzNWZxNmRHcFFtTER4aFBkTGlDUm9nMXlxVDk4b2NROEdrclhoNXdiQ1VjUTFMc2JQNXFPU1VBRlk1cHRRV0sxN09sM0pCam5WTTFPVGhnajFPSkh3?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "What India can teach the rest of the world about chip manufacturing World Economic Forum",
+   "uid": "28892b1c5a7aba"
+  },
+  {
+   "org": "World Economic Forum",
+   "category": "ESG News",
+   "keyword": "World Economic Forum",
    "title": "COP31’s electrification push, and more top energy stories",
    "article_url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxNc3Etdnp5Nk1sNlFKY1VIZTJ5elZwWkZaZElrZUJmeThpWnZTOEo3OFJvMWtJSWozY2dCZl92NU5FYzZic2ZRN3FoRWhJbGRFaEZ6QjFGUzJmLVE2UF9HQ191X19tdjI1NG94bUhDUXNNclM0N1VpZmFFRWJ3MDdydXZ1NEpjLUwyTWU3aHpocnFpeS1rQloxNWxHSQ?oc=5",
    "date": "25 Nov 2026",
@@ -352,11 +452,21 @@
    "org": "World Economic Forum",
    "category": "ESG News",
    "keyword": "World Economic Forum",
-   "title": "US loses its status as measles-free, and other health stories",
-   "article_url": "https://news.google.com/rss/articles/CBMiuwFBVV95cUxOUHNqVUFmTVMxaTlFWDkzZnNoaDNRazlfWE5jVjdVcWV1UmlwU0V4TXFET2FzQ2NqajlSc01BRkhjanJSeEhjc0lHQXRXOFBZNmZBMlE1ZWtYbDJhby1nVGR5YlA5OGxrUHVpZnN1UXItTFFPOFRSZDNMd2R2N3Eydlo1LTNuNmNmVnhBR2xiWkM0eUpSUGJUOWJVR0dWR0tTWWlZWlZKWk1oUnVRV0o5UGw5LURKeHVWUmhn?oc=5",
-   "date": "24 Nov 2026",
-   "snippet": "US loses its status as measles-free, and other health stories World Economic Forum",
-   "uid": "738653a5142edf"
+   "title": "Asoz Rashid - World Economic Forum",
+   "article_url": "https://news.google.com/rss/articles/CBMiVEFVX3lxTE1UQklSMEJCeS0yLTR5SEZqTHo3WW9Ma01ldkpILUJmRlpIUDVFT1N3ZzVaNVpkYTBla25JbEtNNFgyX1k2N05QNXo0ekVtMF9jczctMw?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "Asoz Rashid World Economic Forum",
+   "uid": "832000c18cf4ef"
+  },
+  {
+   "org": "GRI",
+   "category": "ESG News",
+   "keyword": "GRI",
+   "title": "COP31 deadlock must not derail climate action",
+   "article_url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxNRlJRZDU1T3Q0b2NZV19vOVd1TkVUblN3ZHV6eVpEcVVPVGRmbkxsaXBvc2JVdzZpVnlhekY1MjZ6TnN3VkJPVEpJUW5fcnplRXJGRlBJTi1ERHgtMEJ2dlQ0NXdLVS1NM2plRGMyTDg4dWVSSG1VZllZRjJzXzZocHJtWHdsLVZCSUUzX1I3OUJlMEZreW1tblowaw?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "COP31 deadlock must not derail climate action GRI",
+   "uid": "8437977c1d9b17"
   },
   {
    "org": "ISSB / SASB (IFRS Foundation)",
@@ -419,14 +529,14 @@
    "uid": "9ba4119bc55745"
   },
   {
-   "org": "BusinessGreen",
+   "org": "ChannelLife UK",
    "category": "ESG News",
-   "keyword": "Climate Action",
-   "title": "Spotlight on Global Climate Action: What businesses need to know about COP31 - On demand",
-   "article_url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxObVJzVzRMTmZNTTVwVDJLMzZ0b0xqVlBYbnd3SG1SZUdaU0VwRnRRYXF5TGVvSU1wbTVTSXJ6anlaMUtqOEoxdUxVbFVoYXV1bnlCSWs1VzIzLVBBempLQTJQZFhULWxYTDY2bkhMRUZDRjRPc2xQQXRoZlRkZVZsT1I0dWo1TjZuZkpfY0RwVDg1QnVaVW5tMXB3Y0c2Z2xjMW5FSEVReUtsTWc?oc=5",
+   "keyword": "Sustainability Summit",
+   "title": "Planet Mark launches sustainability summit in London",
+   "article_url": "https://news.google.com/rss/articles/CBMijAFBVV95cUxNMm10a1NFN2Z6T05fdmVBWC1GbERud2RmNmExaWdkVkNmXzU2NENidGh0UXdscXo5Wkt4MTR5R253OWhveEVJY0ExeXFIakNuSzUzNlZuVjJzRjFmUV94d21aaVJ4Y3M5WVhVZHVpbmN2bk1mSktuOW1aeWZzN29WVXhZMGszV0VmR0I4NQ?oc=5",
    "date": "25 Nov 2026",
-   "snippet": "Spotlight on Global Climate Action: What businesses need to know about COP31 - On demand BusinessGreen",
-   "uid": "ddeb5afaa6430a"
+   "snippet": "Planet Mark launches sustainability summit in London ChannelLife UK",
+   "uid": "a7d92ce1cab3bb"
   }
  ]
 }
