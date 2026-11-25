@@ -3816,15 +3816,56 @@ print(f"  ESG Intelligence Sweep — {TODAY_STR}")
 print(f"  Sources: {len(SOURCES)}")
 print(f"{'='*60}\n")
 
-all_results: list[dict] = []
+# ── Laptop hand-off ───────────────────────────────────────────────────────────
+# eprocure.gov.in and other Indian portals reset connections from GitHub's US
+# runners, so the scraping is done on a laptop in India (run_local.py,
+# Windows Task Scheduler, 05:15 IST) with SCRAPE_ONLY=1: it runs the parsers
+# below, writes the raw matches to local_matches.json, pushes that file to
+# main and exits — no history, Gemini or email on the laptop. The GitHub run
+# (dispatched 05:45 IST) then loads the file instead of scraping and does
+# dedup, history, Gemini and delivery with its own secrets. If the file is
+# missing or stale (laptop asleep / on battery) GitHub scrapes as before.
+# FORCE_SCRAPE=1 ignores the file.
+LOCAL_MATCHES_PATH = "local_matches.json"
+LOCAL_MATCHES_MAX_AGE_HOURS = 6
+SCRAPE_ONLY = os.environ.get("SCRAPE_ONLY") == "1"
+FORCE_SCRAPE = os.environ.get("FORCE_SCRAPE") == "1"
 
-for source in SOURCES:
-    org = source["org"]
-    parser_fn = PARSER_MAP.get(source["parser"], parse_rss)
-    print(f"  → {org}")
-    hits = parser_fn(source)
-    print(f"    ✓ {len(hits)} match(es)")
-    all_results.extend(hits)
+
+def _load_local_matches() -> dict | None:
+    """Today's laptop-scraped matches, or None when absent/stale/unreadable."""
+    if SCRAPE_ONLY or FORCE_SCRAPE or not os.path.exists(LOCAL_MATCHES_PATH):
+        return None
+    try:
+        with open(LOCAL_MATCHES_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        created = datetime.fromisoformat(data["created_utc"])
+    except (OSError, ValueError, KeyError) as e:
+        print(f"  ⚠  {LOCAL_MATCHES_PATH} unreadable ({e}) — scraping here instead")
+        return None
+    age_h = (RUN_NOW_UTC - created).total_seconds() / 3600
+    if not 0 <= age_h <= LOCAL_MATCHES_MAX_AGE_HOURS:
+        print(f"  ·  Laptop matches are {age_h:.1f}h old — scraping here instead")
+        return None
+    return data
+
+
+_local = _load_local_matches()
+if _local:
+    all_results: list[dict] = _local["results"]
+    TENDER_PORTAL_DOWN = bool(_local.get("tender_portal_down"))
+    TENDER_GATE_STATS.update(_local.get("tender_gate_stats", {}))
+    print(f"  Using {len(all_results)} match(es) scraped on the laptop at "
+          f"{_local['created_utc']} — skipping the scrape here.")
+else:
+    all_results = []
+    for source in SOURCES:
+        org = source["org"]
+        parser_fn = PARSER_MAP.get(source["parser"], parse_rss)
+        print(f"  → {org}")
+        hits = parser_fn(source)
+        print(f"    ✓ {len(hits)} match(es)")
+        all_results.extend(hits)
 
 print(f"\n  Total raw matches: {len(all_results)}")
 if TENDER_GATE_STATS["rows"]:
@@ -3833,6 +3874,17 @@ if TENDER_GATE_STATS["rows"]:
           f"{_s['passed_legal']} legal | {_s['passed_topic']} ESG-topic | "
           f"{_s['passed_energy']} clean-energy | {_s['passed_env']} environmental | "
           f"{_s['no_gate']} no-gate | {_s['excluded']} excluded")
+
+if SCRAPE_ONLY:
+    with open(LOCAL_MATCHES_PATH, "w", encoding="utf-8") as f:
+        json.dump({
+            "created_utc": datetime.now(timezone.utc).isoformat(),
+            "tender_portal_down": TENDER_PORTAL_DOWN,
+            "tender_gate_stats": TENDER_GATE_STATS,
+            "results": all_results,
+        }, f, ensure_ascii=False, indent=1, default=str)
+    print(f"  SCRAPE_ONLY: wrote {len(all_results)} match(es) to {LOCAL_MATCHES_PATH} — exiting.")
+    raise SystemExit(0)
 
 # ==========================================
 # 6. DEDUPLICATION AGAINST HISTORY (URL-LEVEL, with 24h grace window)
