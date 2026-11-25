@@ -1,0 +1,432 @@
+{
+ "created_utc": "2026-11-25T21:02:35.752554+00:00",
+ "tender_portal_down": false,
+ "tender_gate_stats": {
+  "rows": 1530,
+  "excluded": 31,
+  "no_gate": 1492,
+  "passed_legal": 1,
+  "passed_topic": 0,
+  "passed_energy": 6,
+  "passed_env": 0
+ },
+ "results": [
+  {
+   "org": "CPPP Active Tenders – Central",
+   "category": "Tenders",
+   "keyword": "Legal Consultant",
+   "title": "ENGAGEMENT OF LEGAL CONSULTANT FOR MANUFACTURING-CUM-MAINTENANCE OF 9000 HP ELECTRIC LOCOMOITVE PROJECT, BEING MANUFACTURED AT DAHOD",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=92723548",
+   "date": "Deadline: 03 Dec 2026",
+   "reference": "2026-ELECTDEV-225-20 · Tender ID 92723548",
+   "snippet": "13-10-2026 12:08 03-12-2026 15:00 03-12-2026 15:00 ENGAGEMENT OF LEGAL CONSULTANT FOR MANUFACTURING-CUM-MAINTENANCE OF 9000 HP ELECTRIC LOCOMOITVE PROJECT, BEING MANUFACTURED AT DAHOD For complete description and other details, please refer to tender document. 2026-ELECTDEV-225-20 92723548 Ministry of Railways Ministry of Railways Railway related Products",
+   "uid": "7a55ad1b3bfd61"
+  },
+  {
+   "org": "CPPP Active Tenders – Central",
+   "category": "Tenders",
+   "keyword": "Pumped Storage",
+   "title": "Package-2 Design, Engineering, Supply, Erection, Testing and Commissioning of Hydro-Mechanical Works for 640 MW ISP-OSP Pumped Storage Project.",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=2026_NHPC_931251_1",
+   "date": "Deadline: 03 Dec 2026",
+   "reference": "NH/CCW/CC-IV/CO-490/PR/003-REV · Tender ID 2026_NHPC_931251_1",
+   "snippet": "22-10-2026 17:30 03-12-2026 17:00 07-12-2026 15:30 Package-2 Design, Engineering, Supply, Erection, Testing and Commissioning of Hydro-Mechanical Works for 640 MW ISP-OSP Pumped Storage Project. Package-2 Design, Engineering, Supply, Erection, Testing and Commissioning of Hydro-Mechanical Works for 640 MW ISP-OSP Pumped Storage Project. NH/CCW/CC-IV/CO-490/PR/003-REV 2026_NHPC_931251_1 NHPC Limited Ministry of Power Construction Works",
+   "uid": "4a4cb84c79d877"
+  },
+  {
+   "org": "CPPP Active Tenders – Central",
+   "category": "Tenders",
+   "keyword": "Battery Energy Storage",
+   "title": "EPC Package for Development of 15MW Floating Solar PV Project Coupled with 12MW/60 MWh Battery Energy Storage System (BESS) at Tamarind Falls Reservoi",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=2000",
+   "date": "Deadline: 07 Dec 2026",
+   "reference": "CS-0011-004N-2 · Tender ID 2000",
+   "snippet": "15-10-2026 22:04 07-12-2026 13:00 08-12-2026 15:30 EPC Package for Development of 15MW Floating Solar PV Project Coupled with 12MW/60 MWh Battery Energy Storage System (BESS) at Tamarind Falls Reservoir in Mauritius EPC Package for Development of 15MW Floating Solar PV Project Coupled with 12MW/60 MWh Battery Energy Storage System (BESS) at Tamarind Falls Reservoir in Mauritius CS-0011-004N-2 2000 NTPC Limited Ministry of Power Power/Energy Projects/Products/Services",
+   "uid": "90320202f9ef39"
+  },
+  {
+   "org": "CPPP Active Tenders – Central",
+   "category": "Tenders",
+   "keyword": "Wind Energy Project",
+   "title": "REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GR",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000008",
+   "date": "Deadline: 04 Dec 2026",
+   "reference": "TeCL/CC/Wind/2026-27/11 · Tender ID TeCl-2026-TN000008",
+   "snippet": "01-10-2026 12:10 04-12-2026 15:00 04-12-2026 15:30 REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GRID SUBSTATION, GUJARAT REQUEST FOR PROPOSAL (RFP) FOR LAND AGGREGATION FOR ISTS CONNECTED WIND ENERGY PROJECT WITH CAPACITY OF 249.1 MW IN THE VICINITY OF LAKADIA-II ISTS GRID SUBSTATION, GUJARAT TeCL/CC/Wind/2026-27/11 TeCl-2026-TN000008 Terra Clean Limited Ministry of Petroleum and Natural Gas Land/Building",
+   "uid": "2cb8f0b16a281f"
+  },
+  {
+   "org": "CPPP Active Tenders – Central",
+   "category": "Tenders",
+   "keyword": "Solar Energy Project",
+   "title": "REQUEST FOR PROPOSAL (RFP) LAND AGGREGATION FOR ISTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 350 MW IN THE VICINITY OF KRISHNAGIRI (KURNOOL V)",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000005",
+   "date": "Deadline: 27 Nov 2026",
+   "reference": "TeCL/CC/Solar/2026-27/06 · Tender ID TeCl-2026-TN000005",
+   "snippet": "27-07-2026 15:39 27-11-2026 15:00 27-11-2026 15:30 REQUEST FOR PROPOSAL (RFP) LAND AGGREGATION FOR ISTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 350 MW IN THE VICINITY OF KRISHNAGIRI (KURNOOL V) ISTS POOLING SUBSTATION, KRISHNAGIRI TALUKA, KURNOOL DISTRICT, ANDHRA PRADESH REQUEST FOR PROPOSAL (RFP) LAND AGGREGATION FOR ISTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 350 MW IN THE VICINITY OF KRISHNAGIRI (KURNOOL V) ISTS POOLING SUBSTATION, KRISHNAGIRI TALUKA, KURNOOL DISTRICT, ANDHRA PRADESH TeCL/CC/Solar/2026-27/06 TeCl-2026-TN000005 Terra Clean Limited Ministry of Petroleum and Natural Gas Power/Energy Projects/Products/Services",
+   "uid": "441fdaff992d4e"
+  },
+  {
+   "org": "CPPP Active Tenders – Central",
+   "category": "Tenders",
+   "keyword": "Wind Energy Project",
+   "title": "REQUEST FOR PROPOSAL (RFP) FOR END TO END (E2E) ISTS CONNECTED 200 MW (+-%2) WIND ENERGY PROJECT IN THE VICINITY OF DAVANAGERE ISTS GRID SUBSTATION KA",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000007",
+   "date": "Deadline: 02 Dec 2026",
+   "reference": "TeCL/CC/Wind/2026-27/08 · Tender ID TeCl-2026-TN000007",
+   "snippet": "04-08-2026 18:10 02-12-2026 15:00 02-12-2026 15:30 REQUEST FOR PROPOSAL (RFP) FOR END TO END (E2E) ISTS CONNECTED 200 MW (+-%2) WIND ENERGY PROJECT IN THE VICINITY OF DAVANAGERE ISTS GRID SUBSTATION KARNATAKA WITH 100 MW (+-%2) ADDITIONAL CAPACITY UNDER GREENSHOE OPTION INCLUDING COMPREHENSIVE OPERATION & MAINTENANCE FOR 10 YEARS ON LSTK BASIS REQUEST FOR PROPOSAL (RFP) FOR END TO END (E2E) ISTS CONNECTED 200 MW (+-&#37;2) WIND ENERGY PROJECT IN THE VICINITY OF DAVANAGERE ISTS GRID SUBSTATION KARNATAKA WITH 100 MW (+-&#37;2) ADDITIONAL CAPACITY UNDER GREENSHOE OPTION INCLUDING COMPREHENSIVE OPERATION &amp; MAINTENANCE FOR 10 YEARS ON LSTK BASIS TeCL/CC/Wind/2026-27/08 TeCl-2026-TN000007 Terr…",
+   "uid": "8e6d76b368cf4f"
+  },
+  {
+   "org": "CPPP Active Tenders – Central",
+   "category": "Tenders",
+   "keyword": "Solar Energy Project",
+   "title": "REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GE",
+   "article_url": "https://eprocure.gov.in/cppp/#/activeTenders?tenderId=TeCl-2026-TN000009",
+   "date": "Deadline: 02 Dec 2026",
+   "reference": "TeCL/CC/Solar/2026-27/13 · Tender ID TeCl-2026-TN000009",
+   "snippet": "07-10-2026 11:46 02-12-2026 15:00 02-12-2026 15:30 REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GETCO SUBSTATION, DIST MORBI, GUJARAT REQUEST FOR PROPOSAL (RfP) FOR LAND AGGREGATION FOR InSTS CONNECTED SOLAR ENERGY PROJECT WITH CAPACITY OF 300 MW IN THE VICINITY OF 220kV BHALGAMDA GETCO SUBSTATION, DIST MORBI, GUJARAT TeCL/CC/Solar/2026-27/13 TeCl-2026-TN000009 Terra Clean Limited Ministry of Petroleum and Natural Gas Land/Building",
+   "uid": "55dadc6dd410d4"
+  },
+  {
+   "org": "ESG Today",
+   "category": "ESG News",
+   "keyword": "Transition Finance",
+   "title": "BBVA Launches Transition Finance Framework to Back Decarbonization of Hard-to-Abate Sectors",
+   "article_url": "https://news.google.com/rss/articles/CBMiuAFBVV95cUxPUWFlTG8xR3ZFaEJYLXZBOGM3ZFZfR3Q5UVBWdHpwSWVWcGY5N1Q4WWRoeWhWcVV2dHpBU2ZheXZ4dEhoRW10LU9MbC1nYnB5VlpkYWJwRENrR29VR3BCejlFVHJ0ZFZaVE9rZFpZZ29ycW11c3czS0hRc3FidkxybmtvbjMxU0ZkMU9pdS03SmhaRkxuRF9JSDRrSkdndWJsX1BkWHFnSTROb25NVWY4TS0tTWRsVEx5?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "BBVA Launches Transition Finance Framework to Back Decarbonization of Hard-to-Abate Sectors ESG Today",
+   "uid": "c783e8ccd23f22"
+  },
+  {
+   "org": "ESG Today",
+   "category": "ESG News",
+   "keyword": "Nature Based Solutions",
+   "title": "Ardian Raises Over $250 Million for Nature Based Solutions Fund",
+   "article_url": "https://news.google.com/rss/articles/CBMikgFBVV95cUxQSXhKX3o4ZzJ4UExSMmUzSDhXckVHZmpIQlN4TUpCZTIzT1p0bERyeVFVX2xOT1lhQlVHeXA0bUZ4NHN0LTFkTjRlVjBRR2R5dnh4UVlZMlRXTjFVMl9vVENHUDFvWnV4QkhLOC1nWXgwZFViaVRBUzNWNFIzcWEtUHIwNmh1TzdFaFJjMm02aGtLUQ?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "Ardian Raises Over $250 Million for Nature Based Solutions Fund ESG Today",
+   "uid": "64d9894d7d5121"
+  },
+  {
+   "org": "ESG Today",
+   "category": "ESG News",
+   "keyword": "Transition Finance",
+   "title": "BBVA Launches Transition Finance Framework to Back Decarbonization of Hard-to-Abate Sectors",
+   "article_url": "https://www.esgtoday.com/bbva-launches-transition-finance-framework-to-back-decarbonization-of-hard-to-abate-sectors/?utm_source=rss&utm_medium=rss&utm_campaign=bbva-launches-transition-finance-framework-to-back-decarbonization-of-hard-to-abate-sectors",
+   "date": "25 Nov 2026",
+   "snippet": "Spanish bank BBVA announced the launch of its new Transition Debt Finance Framework, aimed at […]",
+   "uid": "e9335c4625c6c2"
+  },
+  {
+   "org": "ESG News",
+   "category": "ESG News",
+   "keyword": "ISSB",
+   "title": "TNFD Calls on ISSB to Upgrade Nature Guidance to a Standard With Required Metrics",
+   "article_url": "https://esgnews.com/tnfd-issb-nature-disclosures-standard/",
+   "date": "24 Nov 2026",
+   "snippet": "The Taskforce on Nature-related Financial Disclosures (TNFD) wants the International Sustainability Standards Board (ISSB) to issue a full Standard on nature. The request leads ten recommendations in TNFD’s comment letter […] The post TNFD Calls on ISSB to Upgrade Nature Guidance to a Standard With Required Metrics appeared first on ESG News.",
+   "uid": "4ab62f41c8ed95"
+  },
+  {
+   "org": "ESG News",
+   "category": "ESG News",
+   "keyword": "Carbon Credits",
+   "title": "A Compliance Market Nobody Enforces Is No Market at All: How Article 6 Is Killing the Supply It Was Meant to Create",
+   "article_url": "https://esgnews.com/article-6-carbon-credit-supply-corsia/",
+   "date": "24 Nov 2026",
+   "snippet": "Countries have authorized more than 348 million carbon credits under Article 6, yet only about 150,000 have been delivered. As CORSIA's 2028 deadline nears, BlueGreen CEO Eyal Harel argues that sovereign red tape is choking the supply compliance markets need. His fix: free privately financed projects from discretionary authorization. The post A Compliance Market Nobody Enforces Is No Market at All: How Article 6 Is Killing the Supply It Was Meant to Create appeared first on ESG News.",
+   "uid": "2e8134e60f43b6"
+  },
+  {
+   "org": "ESG News",
+   "category": "ESG News",
+   "keyword": "ESG Framework",
+   "title": "Corporate Responsibility Report Review: Summit Hotel Properties Embeds ESG Frameworks Across 92 Hotels",
+   "article_url": "https://esgnews.com/summit-hotel-properties-2026-esg-corporate-responsibility-report-review/",
+   "date": "24 Nov 2026",
+   "snippet": "Summit Hotel Properties 2026 Corporate Responsibility Review, ESG framework standardization across hospitality RIET portfolio. The post Corporate Responsibility Report Review: Summit Hotel Properties Embeds ESG Frameworks Across 92 Hotels appeared first on ESG News.",
+   "uid": "5fadc0952b70a7"
+  },
+  {
+   "org": "Sustainability Magazine",
+   "category": "ESG News",
+   "keyword": "CSRD",
+   "title": "Inside Cpl's Push for CSRD Readiness & 2045 Net Zero Goals",
+   "article_url": "https://news.google.com/rss/articles/CBMilAFBVV95cUxPOXVVZWFpRVhmQmtwQzI2WVNkaU8wN3R4SHBBOE9McmFldVZVdUhLQW81NGZYdkl5WjM4WHJsYVo1V3dNOGxiVTNPSGM5V2ZrdnBlTDVYXzhiblRvc1VnYWQwanV6OWlqRjA3Xy1IZFhUelctdk9LMzJqNnV0X1pORjBfbkRaSTc0MmtXcHJzQzk1aVRu?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "Inside Cpl's Push for CSRD Readiness & 2045 Net Zero Goals Sustainability Magazine",
+   "uid": "a6a61746631ed1"
+  },
+  {
+   "org": "Sustainability Magazine",
+   "category": "ESG News",
+   "keyword": "Energy Transition",
+   "title": "Nexans: Advancing the Energy Transition and Meeting Net Zero",
+   "article_url": "https://news.google.com/rss/articles/CBMimgFBVV95cUxPdEpqam1hS1FEVjg0N3JWVGFfVGZSVkc3a1FTVXh5R3NhZ2FJeXZqU0dDNm1IY1ZJbl9JYXFrVmRZNnRWMkMtVlk1cm50TWxrdGNtZ1lWSTBUd2R1Qk1lS2hRWlZyNkd1Mm1raDQyMUpBSjEyVFM4djJ5T3NQWFBVS0tLWmNfdjliVzJOcWw0ejVLQ2w5M09MLUVn?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "Nexans: Advancing the Energy Transition and Meeting Net Zero Sustainability Magazine",
+   "uid": "1bcb64e56fea59"
+  },
+  {
+   "org": "Sustainability Magazine",
+   "category": "ESG News",
+   "keyword": "Sustainability",
+   "title": "Sustainability Sector Reacts to “Hollow” COP31",
+   "article_url": "https://news.google.com/rss/articles/CBMihgFBVV95cUxOZU1zYnRocjU1dUNjX0lvV1lUUUJiQjVDbml2bDVseVJ0Y3JEWUE4V3lLU2FENzlmcjZ6SVBjNnVtUWpqVklMWnNHbk8wZjU1MDJCcEFTdF9XMFE3R0tUWGRwUU96dHBkTDRkZ0dvc0hxMEhtbmI1bi1HTkd4NVRtMjktdThIdw?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "Sustainability Sector Reacts to “Hollow” COP31 Sustainability Magazine",
+   "uid": "17a6d0716384a9"
+  },
+  {
+   "org": "Financial Advisor Magazine",
+   "category": "ESG News",
+   "keyword": "ESG Investing",
+   "title": "Trump's DOL Aims At Restricting ESG Investing In 401(k)s",
+   "article_url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxPM3ZHN1lYTVNhVERLeVp6a05ONVEtX2ctbWN6ckhwcjd6RHZUOENhcmlRUENac1gzelhVa1VaU3RfYTQzREdfVmVhOTVvLVhCZ1pXVmRYb0htWTRzVlJKMFNCeEhzeGJUSXdVSXM0WHBzSUpnRzJhaWRvOHByQ3I4dG8zQ1VJenVMODh2WVA5WW1tT2RsU3R6cnBSUQ?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "Trump's DOL Aims At Restricting ESG Investing In 401(k)s FA Mag",
+   "uid": "4eef4e12a22e5f"
+  },
+  {
+   "org": "GreenMoney",
+   "category": "ESG News",
+   "keyword": "Impact Investing",
+   "title": "What Financial Advisors Need to Know About Sustainable Investing – Jenny Coombs",
+   "article_url": "https://greenmoney.com/what-financial-advisors-need-to-know-about-sustainable-investing-jenny-coombs/",
+   "date": "24 Nov 2026",
+   "snippet": "In this episode of the Smarter Planner podcast host Belle Osvath, CFP®, talks with Jenny Coombs of the US SIF about sustainable investing and how financial advisors can approach the topic with clients. Jenny discusses ESG integration, values-based investing, and impact investing as well as how sustainable investing has evolved and what keeps advisors from […] The post What Financial Advisors Need to Know About Sustainable Investing – Jenny Coombs appeared first on Green Money.",
+   "uid": "2eac072b3e7ea3"
+  },
+  {
+   "org": "GreenMoney",
+   "category": "ESG News",
+   "keyword": "Impact Investing",
+   "title": "Impact Investing Market at $1.76T, Indicating Resilience and Growth Despite a Challenging Economic Environment",
+   "article_url": "https://greenmoney.com/impact-investing-market-at-1-76t-indicating-resilience-and-growth-despite-a-challenging-economic-environment/",
+   "date": "24 Nov 2026",
+   "snippet": "A new report from the Global Impact Investing Network (GIIN) estimates that global impact investing assets under management (AUM) have grown to $1.76 trillion USD, an encouraging figure for an industry aiming to generate positive social and environmental outcomes alongside financial returns. Amit Bouri, CEO and co-founder of the Global Impact Investing Network (GIIN), recently […] The post Impact Investing Market at $1.76T, Indicating Resilience and Growth Despite a Challenging Economic Environment appeared first on Green Money.",
+   "uid": "040b4de04e82e8"
+  },
+  {
+   "org": "EY",
+   "category": "ESG News",
+   "keyword": "Climate Risk",
+   "title": "How agentic AI is transforming treasury beyond spreadsheets",
+   "article_url": "https://www.ey.com/en_in/insights/ai/how-agentic-ai-is-transforming-treasury-beyond-spreadsheets",
+   "date": "",
+   "snippet": "Spotlight How agentic AI is transforming treasury beyond spreadsheets 02 Sept 2026 | Hemal Shah Turning climate risk into a growth engine for banks 17 Aug 2026 | EY India How banks can balance risks with results through hedge accounting 11 Aug 2026 | 8m 40s",
+   "uid": "6a5a6de6455ff0"
+  },
+  {
+   "org": "KPMG",
+   "category": "ESG News",
+   "keyword": "Climate Finance",
+   "title": "FinMin note on climate finance to enable channeling funds to India's green ecosystem, say experts",
+   "article_url": "https://www.moneycontrol.com/news/business/finmin-note-on-climate-finance-to-enable-channeling-funds-to-india-s-green-ecosystem-say-experts-13021573.html",
+   "date": "",
+   "snippet": "FinMin note on climate finance to enable channeling funds to India's green ecosystem, say experts",
+   "uid": "247acf355075b1"
+  },
+  {
+   "org": "KPMG",
+   "category": "ESG News",
+   "keyword": "Circular Economy",
+   "title": "Circular economy as growth lever for Agrasar Bharat: Reimagining water and waste economy",
+   "article_url": "https://kpmg.com/in/en/insights/2026/09/circular-economy-as-growth-lever-for-agrasar-bharat-reimagining-water-and-waste-economy.html",
+   "date": "",
+   "snippet": "Circular economy as growth lever for Agrasar Bharat: Reimagining water and waste economy Examining how circular water and waste systems can strengthen resource security and unlock sustainable growth for Agrasar Bharat Read more",
+   "uid": "bdfa2bae370a47"
+  },
+  {
+   "org": "KPMG",
+   "category": "ESG News",
+   "keyword": "Sustainability",
+   "title": "Safeguarding Sustainability",
+   "article_url": "https://kpmg.com/xx/en/our-insights/sustainability/safeguarding-sustainability.html",
+   "date": "",
+   "snippet": "Safeguarding Sustainability A Dynamic Risk Assessment for the Sustainability Agenda Read more",
+   "uid": "ccf15869102a90"
+  },
+  {
+   "org": "BCG",
+   "category": "ESG News",
+   "keyword": "Energy Transition",
+   "title": "Contact a Climate Change & Sustainability Expert",
+   "article_url": "https://www.bcg.com/capabilities/climate-change-sustainability/experts",
+   "date": "",
+   "snippet": "Next Section Contact a Climate Change & Sustainability Expert Learn More Capability Social Impact Industry Energy Transition",
+   "uid": "94730fce54ab8a"
+  },
+  {
+   "org": "The Hindu",
+   "category": "ESG News",
+   "keyword": "COP31",
+   "title": "At COP31, India asked who gets to develop on a warming planet",
+   "article_url": "https://news.google.com/rss/articles/CBMiuwFBVV95cUxQSnZBbWR1elhzREZaVWtwbTdiYnp0d25ibXlzMzZ0ZWhjUUtBNUJvS1o1VEcyNFgwemdEYVVPbk9HSHIwOXZueVdYNWg5WUpOb1VydWZaUmE0UHFLNGNId0dYMUh5Z1V1ajZTTW05d25teURWYVNOSDFSUzNxc2d0aDZHTGVsUW05NTROWmNrakdIeUVqX1JZaWdMbGkzM29DdmltaGZKTExQTmc1MXd0b3JJMjQteDAtSlRn0gHCAUFVX3lxTE9FLXdIVl8tdG9fY3FodjRKanBmQlgtREF4dXRBVHkwZVk1S3JvSFUyNDRLdV9OT0pBdmVBYjk5WE8xYUVsVVpRMTZRRWJVTThZLXctX3VDQ0pVWm9JajlidFA4ZUkxcERfZEZYRUlNcElHeU9yWlNPdHk5TllZdndaXzdKcG1PLUxiNDJIYWVKSXpNOGI0cnlIanp0ZmdncG5ydTVGcHFpUmloZnhvbzcwMVB2dWYtVDZISDYzZTdnVDZR?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "At COP31, India asked who gets to develop on a warming planet The Hindu",
+   "uid": "546cb0fb790f45"
+  },
+  {
+   "org": "Economic Times",
+   "category": "ESG News",
+   "keyword": "Ammonia",
+   "title": "ACME’s $3.6 billion green ammonia project to boost India’s chemical sector",
+   "article_url": "https://news.google.com/rss/articles/CBMi_AFBVV95cUxQeTNERXV2WUlqNEFLNzZxQ1d2enVSNDlqMkdiWWY1MzhCZV85d05MUjN2cDczMFlPUHJTTnBFNk9iTzZnNVVXeGhOSVhMN05KMDBoSHNCX19ELUJtek9QT2p3TTg1SGhYUGo2X2k0MXM5OWxUN28wX0QwOTRrSmZFYlBKam9sMG1yOEh6VWZBdGR4R0dIN2cyTXdqZmptS2QwV2hkdUdKVXVmTDc3eUxIbC1yTmsxRXRncGo5b0JLUmRIRlQySEE2TmpBa0hXbmtpSl9vTFhPdjdvQ3pxMFJhQkdpWDhBcVNkU3RqZzMwbFQ5NWNqSzl4d2xPQTLSAYICQVVfeXFMTy1ZVkZUM2hCZDUyZlAyNlNURDFwalNaZFJmY2pmcGpWY2V0dVh6cktENm9CN3lHVW1yaGk4OERnS0JjOUFiNHBYX0Q3QzFPLWdmQm9HTlIxd0pzMURsTWhFOHdrMFpSMDlaeWk1ZWdWX1pWX0NwbDVwaTdKeTBxYUxpOC1Fbk1CXzZnLXZzOTNjVDFBMUZ1eHN0Z1VtREZITGdrU01mTjk0NG0wNXV1Y2c5RUcxcXRlbEdZNTFFNW5KbFk1WUJJNC15Y2ctNTFmR1BDNjRzYVFYaW1TMkI2UkVKWllFOFBZTHJqZEJIb2lNM2RRTDZ1XzB6MFlMSzl0SDZ3?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "ACME’s $3.6 billion green ammonia project to boost India’s chemical sector ET Chemicals",
+   "uid": "2af168c04828aa"
+  },
+  {
+   "org": "Economic Times",
+   "category": "ESG News",
+   "keyword": "Climate Finance",
+   "title": "The energy security blind spot in global climate finance",
+   "article_url": "https://news.google.com/rss/articles/CBMiwwFBVV95cUxNdGc1NUE1NW5LOVlTMXhuUmZETmpYek0xd2h3UEs4Z3pRbVVGVldCanNxQUE0TGd2bW5Objd2VXlkUnVjQ1hCVS1DcDN3X1M1VU5ieTc3Yl9zRE0wVXJJaVVNVEttcVQ4Z3NrY2xySmNCZXYteE4taWJ6TnJ2MlR2MlFtckg3M09LZmNhSGU5RlVENk80cmY4bTBXdXNLVm94Q2ZiRnU0QVdkY3EyNHNnZzF1LTU2QWVxNWlHOXlUdjZZWXfSAcgBQVVfeXFMT3BfSDNLUkY5MGI1cmoydXBYNWp1RlhrN0N3QzV6NTZfYXJWZy10WEEtaUJBM29CZV9odGVvVVo3ZEcwaFV2dWVsZnpfRXVCQzh4UlhIYVRNR1lPVDR5cVVySlJZZkRDSlJoc1hGV2dIakZ4VDNuZWktV3NGVWlBTm84dlh6TlNtYUVRWnRTRmh0R2RmNE5PUW1SdVQxTzBydEZvbEY1dl9EYmxULUhFanNNVmhRSHhUNTBEbzdjY05lNzlVdXBoVE0?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "The energy security blind spot in global climate finance ET EnergyWorld",
+   "uid": "7b181e29a2b342"
+  },
+  {
+   "org": "Reuters",
+   "category": "ESG News",
+   "keyword": "Green Hydrogen",
+   "title": "Hopes for green hydrogen revive as industry seeks to cut costs",
+   "article_url": "https://news.google.com/rss/articles/CBMiwwFBVV95cUxNUUtMTEJCNFh6eVdXak12WWpLSXlJTzF3b3hPMGd4N1BzbWp4UEx4Z0VwZnZsekxrNWhaazlKX1kzWlBmRGM0Nk03Q0Q0T3E1ak45Q0xZVTdrNHVuY0psSFVydWVaS0JIcnNtMDlkT3pXaDJhRndTSFZSMWxManpoeG9KbGJ1NTVaTUgxcUNzbWdOTGk1SF9WZW9nWm5VbFRBSXI3M2hiQVBHQnhId0o0dDI0Vmd2QjVWeEpuYmJoYjVEdmc?oc=5",
+   "date": "23 Nov 2026",
+   "snippet": "Hopes for green hydrogen revive as industry seeks to cut costs Reuters",
+   "uid": "21f319185c823f"
+  },
+  {
+   "org": "Clifford Chance",
+   "category": "ESG News",
+   "keyword": "Green Bond",
+   "title": "Clifford Chance advises TRATON on inaugural Green Bond",
+   "article_url": "https://news.google.com/rss/articles/CBMirAFBVV95cUxPeXhDb1YxSzg5TWlaVGlhR1M2d3JRQ0s0LUw1aHE2eHZxNWpNZEl4YlhpRnh2cUZhUWZya2NYX1JwUlVKLWZiS3JCVmxiay16a3ktbUxLWll5Vm5YZEhXdGY4cmE5ZEtxSENuWXdJR2FTd2VISjR4ZkhNdTdJaDJhLVI3dVpRRDZYczlBTDh4dmtUbmZ6ZHBkcXhTLW9yY19xSFV1M1ZXUVRTT2Vi?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "Clifford Chance advises TRATON on inaugural Green Bond Clifford Chance",
+   "uid": "8977d4778824f7"
+  },
+  {
+   "org": "UN Global Compact",
+   "category": "ESG News",
+   "keyword": "Clean Energy Transition",
+   "title": "UN Global Compact Brings Business and Government Together at COP31 to Accelerate Clean Energy Transition",
+   "article_url": "https://unglobalcompact.org/news/un-global-compact-brings-business-and-government-together-cop31-accelerate-clean-energy",
+   "date": "",
+   "snippet": "The latest information from the UN Global Compact Read More Time range Time range Min Max Last month Last 3 months Last 6 months Last 12 months Browse by topic Anti-Corruption Climate & Environment Food Gender General Governance Human Rights Key Moments Labour & Decent Work Leadership Ocean SDG Integration SMEs & Sustainable Supply Chains Sustainable Finance Water Browse by region Africa Global Asia Europe Latin America & the Carribean Middle East and North Africa North America Oceania Apply November 2026 UN Global Compact Brings Business and Government Together at COP31 to Accelerate Clean Energy Transition The UN Global Compact today concluded two weeks of engagements at COP31 in Antalya, …",
+   "uid": "ac379d0eefea37"
+  },
+  {
+   "org": "ICGN",
+   "category": "ESG News",
+   "keyword": "ESG Conference",
+   "title": "ICGN Welcomes Korea’s Final Sustainability – Related Disclosure Roadmap",
+   "article_url": "https://icgn.org/icgn-welcomes-koreas-final-sustainability-related-disclosure-roadmap/",
+   "date": "",
+   "snippet": "News Awards Events and webinars ICGN updates Policy updates All News ICGN Welcomes Korea’s Final Sustainability – Related Disclosure Roadmap 28 July 2026 The International Corporate Governance Network (ICGN) sent a letter of appreciation to the Financial Services Commission (FSC), congratulating it on the final Sustainability-related Disclosure Roadmap announced on 8 July 2026. ICGN Appoints Peter van Veen as Global Policy Director 22 June 2026 The International Corporate Governance Network (ICGN) is pleased to announce the appointment of Peter van Veen as Global Policy Director, effective 1 August 2026. Global investor body considers worker engagement contributes to long-term success 10 Dec…",
+   "uid": "df96a3656f995f"
+  },
+  {
+   "org": "ICGN",
+   "category": "ESG News",
+   "keyword": "ESG Conference",
+   "title": "Korea Global ESG Conference Keynote, 27th June 2025",
+   "article_url": "https://icgn.org/korea-global-esg-conference-keynote-27th-june-2025/",
+   "date": "",
+   "snippet": "Korea Global ESG Conference Keynote, 27th June 2025",
+   "uid": "43f9aa644efd8c"
+  },
+  {
+   "org": "World Economic Forum",
+   "category": "ESG News",
+   "keyword": "World Economic Forum",
+   "title": "COP31’s electrification push, and more top energy stories",
+   "article_url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxNc3Etdnp5Nk1sNlFKY1VIZTJ5elZwWkZaZElrZUJmeThpWnZTOEo3OFJvMWtJSWozY2dCZl92NU5FYzZic2ZRN3FoRWhJbGRFaEZ6QjFGUzJmLVE2UF9HQ191X19tdjI1NG94bUhDUXNNclM0N1VpZmFFRWJ3MDdydXZ1NEpjLUwyTWU3aHpocnFpeS1rQloxNWxHSQ?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "COP31’s electrification push, and more top energy stories World Economic Forum",
+   "uid": "9ba4119bc55745"
+  },
+  {
+   "org": "World Economic Forum",
+   "category": "ESG News",
+   "keyword": "World Economic Forum",
+   "title": "US loses its status as measles-free, and other health stories",
+   "article_url": "https://news.google.com/rss/articles/CBMiuwFBVV95cUxOUHNqVUFmTVMxaTlFWDkzZnNoaDNRazlfWE5jVjdVcWV1UmlwU0V4TXFET2FzQ2NqajlSc01BRkhjanJSeEhjc0lHQXRXOFBZNmZBMlE1ZWtYbDJhby1nVGR5YlA5OGxrUHVpZnN1UXItTFFPOFRSZDNMd2R2N3Eydlo1LTNuNmNmVnhBR2xiWkM0eUpSUGJUOWJVR0dWR0tTWWlZWlZKWk1oUnVRV0o5UGw5LURKeHVWUmhn?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "US loses its status as measles-free, and other health stories World Economic Forum",
+   "uid": "738653a5142edf"
+  },
+  {
+   "org": "ISSB / SASB (IFRS Foundation)",
+   "category": "ESG News",
+   "keyword": "Integrated Reporting",
+   "title": "IFRS Accounting Standards",
+   "article_url": "https://www.ifrs.org/content/ifrs/home/issued-standards/list-of-standards.html",
+   "date": "",
+   "snippet": "IFRS Accounting Standards IFRS for SMEs Accounting Standard Management Commentary Digital financial reporting IFRS translations Integrated reporting",
+   "uid": "0e3ab044492b21"
+  },
+  {
+   "org": "ISSB / SASB (IFRS Foundation)",
+   "category": "ESG News",
+   "keyword": "Integrated Reporting",
+   "title": "IFRS Sustainability Disclosure Standards",
+   "article_url": "https://www.ifrs.org/content/ifrs/home/issued-standards/ifrs-sustainability-standards-navigator.html",
+   "date": "",
+   "snippet": "IFRS Sustainability Disclosure Standards Digital financial reporting IFRS translations SASB Standards CDSB guidance and framework Integrated reporting TCFD recommendations",
+   "uid": "630e914ab57bd9"
+  },
+  {
+   "org": "ISSB / SASB (IFRS Foundation)",
+   "category": "ESG News",
+   "keyword": "ISSB",
+   "title": "Sustainability education products overview",
+   "article_url": "https://www.ifrs.org/content/ifrs/home/products-and-services/sustainability-products-and-services.html",
+   "date": "",
+   "snippet": "Sustainability education products overview IFRS Sustainability licensing Alliance Membership Programme FSA Credential ISSB Training Partner Programme",
+   "uid": "3b27a8314203d4"
+  },
+  {
+   "org": "Indian Green Building Council (IGBC) – CII",
+   "category": "ESG News",
+   "keyword": "Net Zero",
+   "title": "CII-IGBC & ESG Net Zero program",
+   "article_url": "https://d1owjfc1d3lv0e.cloudfront.net/website-assets/frontend-assets/html_pdfs/CII-IGBC and ESG Net Zero Program brochure.pdf",
+   "date": "",
+   "snippet": "CII-IGBC & ESG Net Zero program",
+   "uid": "72288b5eac65a1"
+  },
+  {
+   "org": "African Development Bank Group",
+   "category": "ESG News",
+   "keyword": "Climate Finance",
+   "title": "COP31: Is Article 6 Delivering Climate Finance?",
+   "article_url": "https://news.google.com/rss/articles/CBMikgFBVV95cUxQUFFUTWlidUJWMEtweVV3RTF3enV5YzZyUHhlcVI4ZE1qS3ZqVTBwZS0wcHBKdlhSQ2pRaDcxTWx0YjRrUDZ3c3JMVVVSckZ6Z0I2UzFJRDhXVllmNjRhZ05zNy1ORlFvUEZwbjMtY0ZIMG1oRmJpOUxON3V6V005VV9xb1JYZUM3RmNkMEZnbzZiZw?oc=5",
+   "date": "24 Nov 2026",
+   "snippet": "COP31: Is Article 6 Delivering Climate Finance? African Development Bank Group",
+   "uid": "713821808f01ee"
+  },
+  {
+   "org": "World Economic Forum",
+   "category": "ESG News",
+   "keyword": "World Economic Forum",
+   "title": "COP31’s electrification push, and more top energy stories",
+   "article_url": "https://news.google.com/rss/articles/CBMimwFBVV95cUxNc3Etdnp5Nk1sNlFKY1VIZTJ5elZwWkZaZElrZUJmeThpWnZTOEo3OFJvMWtJSWozY2dCZl92NU5FYzZic2ZRN3FoRWhJbGRFaEZ6QjFGUzJmLVE2UF9HQ191X19tdjI1NG94bUhDUXNNclM0N1VpZmFFRWJ3MDdydXZ1NEpjLUwyTWU3aHpocnFpeS1rQloxNWxHSQ?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "COP31’s electrification push, and more top energy stories World Economic Forum",
+   "uid": "9ba4119bc55745"
+  },
+  {
+   "org": "BusinessGreen",
+   "category": "ESG News",
+   "keyword": "Climate Action",
+   "title": "Spotlight on Global Climate Action: What businesses need to know about COP31 - On demand",
+   "article_url": "https://news.google.com/rss/articles/CBMiqwFBVV95cUxObVJzVzRMTmZNTTVwVDJLMzZ0b0xqVlBYbnd3SG1SZUdaU0VwRnRRYXF5TGVvSU1wbTVTSXJ6anlaMUtqOEoxdUxVbFVoYXV1bnlCSWs1VzIzLVBBempLQTJQZFhULWxYTDY2bkhMRUZDRjRPc2xQQXRoZlRkZVZsT1I0dWo1TjZuZkpfY0RwVDg1QnVaVW5tMXB3Y0c2Z2xjMW5FSEVReUtsTWc?oc=5",
+   "date": "25 Nov 2026",
+   "snippet": "Spotlight on Global Climate Action: What businesses need to know about COP31 - On demand BusinessGreen",
+   "uid": "ddeb5afaa6430a"
+  }
+ ]
+}
